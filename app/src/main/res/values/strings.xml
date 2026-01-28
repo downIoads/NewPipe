@@ -72,6 +72,8 @@
     <string name="notification_colorize_title">Colorize notification</string>
     <string name="notification_colorize_summary">Have Android customize the notification\'s color according to the main color in the thumbnail (note that this is not available on all devices)</string>
     <string name="play_audio">Audio</string>
+    <string name="audio_preamp_title">Audio Preamp</string>
+    <string name="audio_preamp_summary">Lower NewPipe playback volume without changing system volume</string>
     <string name="default_audio_format_title">Default audio format</string>
     <string name="default_video_format_title">Default video format</string>
     <string name="theme_title">Theme</string>

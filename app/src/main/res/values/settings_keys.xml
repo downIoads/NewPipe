@@ -15,6 +15,7 @@
 
     <string name="use_external_video_player_key">use_external_video_player</string>
     <string name="use_external_audio_player_key">use_external_audio_player</string>
+    <string name="audio_preamp_key">audio_preamp</string>
 
     <string name="resume_on_audio_focus_gain_key">resume_on_audio_focus_gain</string>
     <string name="popup_remember_size_pos_key">popup_remember_size_pos_key</string>

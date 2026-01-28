@@ -6,6 +6,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.format.DateUtils;
+import android.util.Log;
 import android.widget.Toast;
 
 import androidx.preference.ListPreference;
@@ -20,6 +21,7 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class VideoAudioSettingsFragment extends BasePreferenceFragment {
+    private static final String TAG = VideoAudioSettingsFragment.class.getSimpleName();
     private SharedPreferences.OnSharedPreferenceChangeListener listener;
 
     @Override
@@ -51,6 +53,9 @@ public class VideoAudioSettingsFragment extends BasePreferenceFragment {
                 updateSeekOptions();
             } else if (getString(R.string.show_higher_resolutions_key).equals(key)) {
                 updateResolutionOptions();
+            } else if (getString(R.string.audio_preamp_key).equals(key)) {
+                final int newValue = sharedPreferences.getInt(key, -15);
+                Log.i(TAG, "Audio Preamp value changed: " + newValue);
             }
         };
     }

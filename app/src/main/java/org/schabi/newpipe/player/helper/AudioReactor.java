@@ -19,6 +19,11 @@ import com.google.android.exoplayer2.analytics.AnalyticsListener;
 
 public class AudioReactor implements AudioManager.OnAudioFocusChangeListener, AnalyticsListener {
 
+    @FunctionalInterface
+    public interface PlayerVolumeSetter {
+        void setPlayerVolume(float volume);
+    }
+
     private static final String TAG = "AudioFocusReactor";
 
     private static final int DUCK_DURATION = 1500;
@@ -28,14 +33,17 @@ public class AudioReactor implements AudioManager.OnAudioFocusChangeListener, An
     private static final int STREAM_TYPE = AudioManager.STREAM_MUSIC;
 
     private final ExoPlayer player;
+    private final PlayerVolumeSetter volumeSetter;
     private final Context context;
     private final AudioManager audioManager;
 
     private final AudioFocusRequestCompat request;
 
     public AudioReactor(@NonNull final Context context,
-                        @NonNull final ExoPlayer player) {
+                        @NonNull final ExoPlayer player,
+                        @NonNull final PlayerVolumeSetter volumeSetter) {
         this.player = player;
+        this.volumeSetter = volumeSetter;
         this.context = context;
         this.audioManager = ContextCompat.getSystemService(context, AudioManager.class);
         player.addAnalyticsListener(this);
@@ -100,7 +108,7 @@ public class AudioReactor implements AudioManager.OnAudioFocusChangeListener, An
 
     private void onAudioFocusGain() {
         Log.d(TAG, "onAudioFocusGain() called");
-        player.setVolume(DUCK_AUDIO_TO);
+        volumeSetter.setPlayerVolume(DUCK_AUDIO_TO);
         animateAudio(DUCK_AUDIO_TO, 1.0f);
 
         if (PlayerHelper.isResumeAfterAudioFocusGain(context)) {
@@ -116,7 +124,7 @@ public class AudioReactor implements AudioManager.OnAudioFocusChangeListener, An
     private void onAudioFocusLossCanDuck() {
         Log.d(TAG, "onAudioFocusLossCanDuck() called");
         // Set the volume to 1/10 on ducking
-        player.setVolume(DUCK_AUDIO_TO);
+        volumeSetter.setPlayerVolume(DUCK_AUDIO_TO);
     }
 
     private void animateAudio(final float from, final float to) {
@@ -126,21 +134,21 @@ public class AudioReactor implements AudioManager.OnAudioFocusChangeListener, An
         valueAnimator.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationStart(final Animator animation) {
-                player.setVolume(from);
+                volumeSetter.setPlayerVolume(from);
             }
 
             @Override
             public void onAnimationCancel(final Animator animation) {
-                player.setVolume(to);
+                volumeSetter.setPlayerVolume(to);
             }
 
             @Override
             public void onAnimationEnd(final Animator animation) {
-                player.setVolume(to);
+                volumeSetter.setPlayerVolume(to);
             }
         });
         valueAnimator.addUpdateListener(animation ->
-                player.setVolume(((float) animation.getAnimatedValue())));
+                volumeSetter.setPlayerVolume(((float) animation.getAnimatedValue())));
         valueAnimator.start();
     }
 

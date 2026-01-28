@@ -37,9 +37,11 @@ import org.schabi.newpipe.util.ZipHelper;
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -64,7 +66,8 @@ public class BackupRestoreSettingsFragment extends BasePreferenceFragment {
                                     @Nullable final String rootKey) {
         final File homeDir = ContextCompat.getDataDir(requireContext());
         Objects.requireNonNull(homeDir);
-        manager = new ImportExportManager(new BackupFileLocator(homeDir));
+        manager = new ImportExportManager(new BackupFileLocator(homeDir),
+                getExcludedPreferenceKeys());
 
         importExportDataPathKey = getString(R.string.import_export_data_path);
 
@@ -123,6 +126,10 @@ public class BackupRestoreSettingsFragment extends BasePreferenceFragment {
             alertDialog.show();
             return true;
         });
+    }
+
+    private Set<String> getExcludedPreferenceKeys() {
+        return Collections.singleton(getString(R.string.audio_preamp_key));
     }
 
     private void requestExportPathResult(final ActivityResult result) {

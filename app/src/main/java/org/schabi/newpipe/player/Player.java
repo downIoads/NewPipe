@@ -271,6 +271,14 @@ public final class Player implements PlaybackListener, Listener {
     @NonNull
     private final HistoryRecordManager recordManager;
 
+    private static final int AUDIO_PREAMP_MIN_DB = -30;
+    private static final int AUDIO_PREAMP_MAX_DB = 0;
+    private static final int AUDIO_PREAMP_DEFAULT_DB = -15;
+
+    private float baseVolume = 1.0f;
+    private float audioPreampGain = 1.0f;
+    private SharedPreferences.OnSharedPreferenceChangeListener audioPreampListener;
+
 
     /*//////////////////////////////////////////////////////////////////////////
     // Constructor
@@ -293,6 +301,14 @@ public final class Player implements PlaybackListener, Listener {
         recordManager = new HistoryRecordManager(context);
 
         setupBroadcastReceiver();
+
+        audioPreampListener = (sharedPreferences, key) -> {
+            if (key == null || key.equals(context.getString(R.string.audio_preamp_key))) {
+                updateAudioPreampFromPrefs();
+            }
+        };
+        prefs.registerOnSharedPreferenceChangeListener(audioPreampListener);
+        updateAudioPreampFromPrefs();
 
         trackSelector = new DefaultTrackSelector(context, PlayerHelper.getQualitySelector());
         final PlayerDataSource dataSource = new PlayerDataSource(context,
@@ -619,7 +635,7 @@ public final class Player implements PlaybackListener, Listener {
 
         UIs.call(PlayerUi::initPlayback);
 
-        simpleExoPlayer.setVolume(isMuted() ? 0 : 1);
+        applyVolume();
         notifyQueueUpdateToListeners();
     }
 
@@ -639,7 +655,7 @@ public final class Player implements PlaybackListener, Listener {
         simpleExoPlayer.setWakeMode(C.WAKE_MODE_NETWORK);
         simpleExoPlayer.setHandleAudioBecomingNoisy(true);
 
-        audioReactor = new AudioReactor(context, simpleExoPlayer);
+        audioReactor = new AudioReactor(context, simpleExoPlayer, this::setBaseVolume);
 
         registerBroadcastReceiver();
 
@@ -690,6 +706,11 @@ public final class Player implements PlaybackListener, Listener {
     public void destroy() {
         if (DEBUG) {
             Log.d(TAG, "destroy() called");
+        }
+
+        if (audioPreampListener != null) {
+            prefs.unregisterOnSharedPreferenceChangeListener(audioPreampListener);
+            audioPreampListener = null;
         }
 
         saveStreamProgressState();
@@ -1326,13 +1347,46 @@ public final class Player implements PlaybackListener, Listener {
 
 
     /*//////////////////////////////////////////////////////////////////////////
+    // Volume helpers
+    //////////////////////////////////////////////////////////////////////////*/
+    //region Volume helpers
+
+    private void setBaseVolume(final float volume) {
+        baseVolume = MathUtils.clamp(volume, 0.0f, 1.0f);
+        applyVolume();
+    }
+
+    private void applyVolume() {
+        if (exoPlayerIsNull()) {
+            return;
+        }
+        simpleExoPlayer.setVolume(baseVolume * audioPreampGain);
+    }
+
+    private void updateAudioPreampFromPrefs() {
+        final int prefValue = prefs.getInt(
+                context.getString(R.string.audio_preamp_key),
+                AUDIO_PREAMP_DEFAULT_DB);
+        final int clamped = MathUtils.clamp(prefValue, AUDIO_PREAMP_MIN_DB, AUDIO_PREAMP_MAX_DB);
+        audioPreampGain = dbToGain(clamped);
+        applyVolume();
+    }
+
+    private static float dbToGain(final int db) {
+        return (float) Math.pow(10.0, db / 20.0);
+    }
+    //endregion
+
+
+
+    /*//////////////////////////////////////////////////////////////////////////
     // Mute / Unmute
     //////////////////////////////////////////////////////////////////////////*/
     //region Mute / Unmute
 
     public void toggleMute() {
         final boolean wasMuted = isMuted();
-        simpleExoPlayer.setVolume(wasMuted ? 1 : 0);
+        setBaseVolume(wasMuted ? 1.0f : 0.0f);
         if (wasMuted) {
             audioReactor.requestAudioFocus();
         } else {
@@ -1343,7 +1397,7 @@ public final class Player implements PlaybackListener, Listener {
     }
 
     public boolean isMuted() {
-        return !exoPlayerIsNull() && simpleExoPlayer.getVolume() == 0;
+        return baseVolume == 0.0f;
     }
     //endregion
 

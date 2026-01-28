@@ -13,7 +13,10 @@ import org.schabi.newpipe.streams.io.SharpOutputStream
 import org.schabi.newpipe.streams.io.StoredFileHelper
 import org.schabi.newpipe.util.ZipHelper
 
-class ImportExportManager(private val fileLocator: BackupFileLocator) {
+class ImportExportManager(
+    private val fileLocator: BackupFileLocator,
+    private val excludedPreferenceKeys: Set<String> = emptySet()
+) {
     companion object {
         const val TAG = "ImportExportManager"
     }
@@ -24,6 +27,7 @@ class ImportExportManager(private val fileLocator: BackupFileLocator) {
      */
     @Throws(Exception::class)
     fun exportDatabase(preferences: SharedPreferences, file: StoredFileHelper) {
+        val exportedPreferences = filteredPreferences(preferences)
         // truncate the file before writing to it, otherwise if the new content is smaller than the
         // previous file size, the file will retain part of the previous content and be corrupted
         ZipOutputStream(SharpOutputStream(file.openAndTruncateStream()).buffered()).use { outZip ->
@@ -40,7 +44,7 @@ class ImportExportManager(private val fileLocator: BackupFileLocator) {
                 BackupFileLocator.FILE_NAME_SERIALIZED_PREFS
             ) { byteOutput ->
                 ObjectOutputStream(byteOutput).use { output ->
-                    output.writeObject(preferences.all)
+                    output.writeObject(exportedPreferences)
                     output.flush()
                 }
             }
@@ -53,7 +57,7 @@ class ImportExportManager(private val fileLocator: BackupFileLocator) {
                 JsonWriter
                     .indent("")
                     .on(byteOutput)
-                    .`object`(preferences.all)
+                    .`object`(exportedPreferences)
                     .done()
             }
         }
@@ -116,10 +120,14 @@ class ImportExportManager(private val fileLocator: BackupFileLocator) {
                 @Suppress("UNCHECKED_CAST")
                 val entries = input.readObject() as Map<String, *>
 
+                val excludedEntries = captureExcludedPreferences(preferences)
                 val editor = preferences.edit()
                 editor.clear()
 
                 for ((key, value) in entries) {
+                    if (excludedPreferenceKeys.contains(key)) {
+                        continue
+                    }
                     when (value) {
                         is Boolean -> editor.putBoolean(key, value)
 
@@ -139,6 +147,7 @@ class ImportExportManager(private val fileLocator: BackupFileLocator) {
                     }
                 }
 
+                restoreExcludedPreferences(editor, excludedEntries)
                 if (!editor.commit()) {
                     throw IOException("Unable to commit loadSerializedPrefs")
                 }
@@ -158,10 +167,14 @@ class ImportExportManager(private val fileLocator: BackupFileLocator) {
         ZipHelper.extractFileFromZip(zipFile, BackupFileLocator.FILE_NAME_JSON_PREFS) {
             val jsonObject = JsonParser.`object`().from(it)
 
+            val excludedEntries = captureExcludedPreferences(preferences)
             val editor = preferences.edit()
             editor.clear()
 
             for ((key, value) in jsonObject) {
+                if (excludedPreferenceKeys.contains(key)) {
+                    continue
+                }
                 when (value) {
                     is Boolean -> editor.putBoolean(key, value)
 
@@ -179,12 +192,53 @@ class ImportExportManager(private val fileLocator: BackupFileLocator) {
                 }
             }
 
+            restoreExcludedPreferences(editor, excludedEntries)
             if (!editor.commit()) {
                 throw IOException("Unable to commit loadJsonPrefs")
             }
         }.let { fileExists ->
             if (!fileExists) {
                 throw FileNotFoundException(BackupFileLocator.FILE_NAME_JSON_PREFS)
+            }
+        }
+    }
+
+    private fun filteredPreferences(preferences: SharedPreferences): Map<String, *> {
+        val all = preferences.all
+        return if (excludedPreferenceKeys.isEmpty()) {
+            all
+        } else {
+            all.filterKeys { key -> !excludedPreferenceKeys.contains(key) }
+        }
+    }
+
+    private fun captureExcludedPreferences(preferences: SharedPreferences): Map<String, *> {
+        if (excludedPreferenceKeys.isEmpty()) {
+            return emptyMap<String, Any?>()
+        }
+        return preferences.all.filterKeys { key -> excludedPreferenceKeys.contains(key) }
+    }
+
+    private fun restoreExcludedPreferences(
+        editor: SharedPreferences.Editor,
+        excludedEntries: Map<String, *>
+    ) {
+        for ((key, value) in excludedEntries) {
+            when (value) {
+                is Boolean -> editor.putBoolean(key, value)
+
+                is Float -> editor.putFloat(key, value)
+
+                is Int -> editor.putInt(key, value)
+
+                is Long -> editor.putLong(key, value)
+
+                is String -> editor.putString(key, value)
+
+                is Set<*> -> {
+                    @Suppress("UNCHECKED_CAST")
+                    editor.putStringSet(key, value as Set<String>?)
+                }
             }
         }
     }
