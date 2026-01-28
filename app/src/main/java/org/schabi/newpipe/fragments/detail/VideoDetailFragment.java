@@ -977,6 +977,26 @@ public final class VideoDetailFragment
         updateTabIconsAndContentDescriptions();
     }
 
+    private void refreshCommentsTab(@NonNull final StreamInfo info, final boolean forceLoad) {
+        if (!shouldShowComments()) {
+            return;
+        }
+        final int commentsTabPos = pageAdapter.getItemPositionByTitle(COMMENTS_TAB_TAG);
+        if (commentsTabPos < 0) {
+            return;
+        }
+        final Fragment fragment = pageAdapter.getItem(commentsTabPos);
+        if (!(fragment instanceof CommentsFragment)) {
+            return;
+        }
+
+        final String commentsUrl = isEmpty(info.getOriginalUrl())
+                ? info.getUrl()
+                : info.getOriginalUrl();
+        ((CommentsFragment) fragment).updateStream(info.getServiceId(), commentsUrl,
+                info.getName(), forceLoad);
+    }
+
     private boolean shouldShowComments() {
         try {
             return showComments && NewPipe.getService(serviceId)
@@ -1513,6 +1533,7 @@ public final class VideoDetailFragment
         setInitialData(info.getServiceId(), info.getOriginalUrl(), info.getName(), playQueue);
 
         updateTabs(info);
+        refreshCommentsTab(info, false);
 
         animate(binding.detailThumbnailPlayButton, true, 200);
         binding.detailVideoTitleView.setText(title);

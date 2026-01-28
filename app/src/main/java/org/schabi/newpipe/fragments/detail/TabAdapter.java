@@ -14,7 +14,9 @@ import java.util.List;
 public class TabAdapter extends FragmentPagerAdapter {
     private final List<Fragment> mFragmentList = new ArrayList<>();
     private final List<String> mFragmentTitleList = new ArrayList<>();
+    private final List<Long> mFragmentIdList = new ArrayList<>();
     private final FragmentManager fragmentManager;
+    private long nextFragmentId = 0L;
 
     public TabAdapter(final FragmentManager fm) {
         // if changed to BEHAVIOR_RESUME_ONLY_CURRENT_FRAGMENT => crash if enqueueing stream in
@@ -38,20 +40,25 @@ public class TabAdapter extends FragmentPagerAdapter {
     public void addFragment(final Fragment fragment, final String title) {
         mFragmentList.add(fragment);
         mFragmentTitleList.add(title);
+        mFragmentIdList.add(nextFragmentId++);
     }
 
     public void clearAllItems() {
         mFragmentList.clear();
         mFragmentTitleList.clear();
+        mFragmentIdList.clear();
     }
 
     public void removeItem(final int position) {
-        mFragmentList.remove(position == 0 ? 0 : position - 1);
-        mFragmentTitleList.remove(position == 0 ? 0 : position - 1);
+        final int index = position == 0 ? 0 : position - 1;
+        mFragmentList.remove(index);
+        mFragmentTitleList.remove(index);
+        mFragmentIdList.remove(index);
     }
 
     public void updateItem(final int position, final Fragment fragment) {
         mFragmentList.set(position, fragment);
+        mFragmentIdList.set(position, nextFragmentId++);
     }
 
     public void updateItem(final String title, final Fragment fragment) {
@@ -68,6 +75,11 @@ public class TabAdapter extends FragmentPagerAdapter {
         } else {
             return POSITION_NONE;
         }
+    }
+
+    @Override
+    public long getItemId(final int position) {
+        return mFragmentIdList.get(position);
     }
 
     public int getItemPositionByTitle(final String title) {

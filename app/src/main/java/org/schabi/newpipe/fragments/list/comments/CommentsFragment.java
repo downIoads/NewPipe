@@ -1,6 +1,7 @@
 package org.schabi.newpipe.fragments.list.comments;
 
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -119,5 +120,25 @@ public class CommentsFragment extends BaseListInfoFragment<CommentsInfoItem, Com
 
         itemsList.scrollToPosition(position);
         return true;
+    }
+
+    public void updateStream(final int newServiceId,
+                             @NonNull final String newUrl,
+                             @NonNull final String newName,
+                             final boolean forceLoad) {
+        if (serviceId == newServiceId && TextUtils.equals(url, newUrl)) {
+            return;
+        }
+
+        setInitialData(newServiceId, newUrl, newName);
+        currentInfo = null;
+        currentNextPage = null;
+        if (currentWorker != null) {
+            currentWorker.dispose();
+            currentWorker = null;
+        }
+        if (getView() != null) {
+            startLoading(forceLoad);
+        }
     }
 }
