@@ -1,27 +1,36 @@
 package org.schabi.newpipe;
 
 import android.content.Context;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.preference.PreferenceManager;
 
 import org.schabi.newpipe.error.ReCaptchaActivity;
+import com.grack.nanojson.JsonArray;
+import com.grack.nanojson.JsonObject;
+import com.grack.nanojson.JsonParser;
+import com.grack.nanojson.JsonWriter;
 import org.schabi.newpipe.extractor.downloader.Downloader;
 import org.schabi.newpipe.extractor.downloader.Request;
 import org.schabi.newpipe.extractor.downloader.Response;
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException;
+import org.schabi.newpipe.extractor.services.youtube.PoTokenResult;
 import org.schabi.newpipe.util.InfoCache;
+import org.schabi.newpipe.util.potoken.PoTokenProviderImpl;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.nio.charset.StandardCharsets;
 
 import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
@@ -34,6 +43,7 @@ public final class DownloaderImpl extends Downloader {
             "youtube_restricted_mode_key";
     public static final String YOUTUBE_RESTRICTED_MODE_COOKIE = "PREF=f2=8000000";
     public static final String YOUTUBE_DOMAIN = "youtube.com";
+    private static final String YOUTUBE_PLAYER_ENDPOINT = "/youtubei/v1/player";
 
     private static DownloaderImpl instance;
     private final Map<String, String> mCookies;
@@ -129,7 +139,11 @@ public final class DownloaderImpl extends Downloader {
         final String httpMethod = request.httpMethod();
         final String url = request.url();
         final Map<String, List<String>> headers = request.headers();
-        final byte[] dataToSend = request.dataToSend();
+        byte[] dataToSend = request.dataToSend();
+
+        if (dataToSend != null && url.contains(YOUTUBE_PLAYER_ENDPOINT)) {
+            dataToSend = maybeInjectPoTokenIntoPlayerRequest(url, dataToSend);
+        }
 
         RequestBody requestBody = null;
         if (dataToSend != null) {
@@ -164,6 +178,12 @@ public final class DownloaderImpl extends Downloader {
                 responseBodyToReturn = body.string();
             }
 
+            if (responseBodyToReturn != null && url.contains(YOUTUBE_PLAYER_ENDPOINT)) {
+                responseBodyToReturn = maybePatchYoutubePlayabilityStatus(
+                        url,
+                        responseBodyToReturn);
+            }
+
             final String latestUrl = response.request().url().toString();
             return new Response(
                     response.code(),
@@ -171,6 +191,137 @@ public final class DownloaderImpl extends Downloader {
                     response.headers().toMultimap(),
                     responseBodyToReturn,
                     latestUrl);
+        }
+    }
+
+    private static byte[] maybeInjectPoTokenIntoPlayerRequest(
+            final String url,
+            final byte[] dataToSend
+    ) {
+        try {
+            final String body = new String(dataToSend, StandardCharsets.UTF_8);
+            final JsonObject json = JsonParser.object().from(body);
+            if (json.has("serviceIntegrityDimensions")) {
+                return dataToSend;
+            }
+
+            final JsonObject context = json.getObject("context", null);
+            final JsonObject client = context != null
+                    ? context.getObject("client", null)
+                    : null;
+            final String clientName = client != null
+                    ? client.getString("clientName", null)
+                    : null;
+            if (clientName == null
+                    || (!"WEB".equalsIgnoreCase(clientName)
+                    && !"WEB_EMBEDDED_PLAYER".equalsIgnoreCase(clientName))) {
+                return dataToSend;
+            }
+
+            final String videoId = json.getString("videoId", null);
+            if (videoId == null || videoId.isEmpty()) {
+                return dataToSend;
+            }
+
+            final PoTokenResult poToken =
+                    PoTokenProviderImpl.INSTANCE.getWebClientPoToken(videoId);
+            if (poToken == null || poToken.playerRequestPoToken == null) {
+                return dataToSend;
+            }
+
+            final JsonObject serviceIntegrityDimensions = new JsonObject();
+            serviceIntegrityDimensions.put("poToken", poToken.playerRequestPoToken);
+            json.put("serviceIntegrityDimensions", serviceIntegrityDimensions);
+
+            if (client != null && poToken.visitorData != null) {
+                client.put("visitorData", poToken.visitorData);
+            }
+
+            final String updatedBody = JsonWriter.string(json);
+            if (MainActivity.DEBUG) {
+                Log.d(
+                        DownloaderImpl.class.getSimpleName(),
+                        "Injected poToken into player request for " + videoId
+                                + " (" + url + ")"
+                );
+            }
+            return updatedBody.getBytes(StandardCharsets.UTF_8);
+        } catch (final Exception e) {
+            if (MainActivity.DEBUG) {
+                Log.w(
+                        DownloaderImpl.class.getSimpleName(),
+                        "Failed to inject poToken into player request for " + url,
+                        e
+                );
+            }
+            return dataToSend;
+        }
+    }
+
+    private static String maybePatchYoutubePlayabilityStatus(
+            final String url,
+            final String responseBody
+    ) {
+        if (!url.contains("playabilityStatus")
+                && !url.contains("$fields=microformat,playabilityStatus")) {
+            return responseBody;
+        }
+
+        try {
+            final JsonObject json = JsonParser.object().from(responseBody);
+            final JsonObject playabilityStatus = json.getObject("playabilityStatus", null);
+            if (playabilityStatus == null) {
+                return responseBody;
+            }
+
+            final String status = playabilityStatus.getString("status", "");
+            String reason = playabilityStatus.getString("reason", "");
+            if (reason == null || reason.isEmpty()) {
+                final JsonArray messages = playabilityStatus.getArray("messages", null);
+                if (messages != null && !messages.isEmpty()) {
+                    reason = messages.getString(0);
+                }
+            }
+
+            final String reasonLower = reason == null
+                    ? ""
+                    : reason.toLowerCase(Locale.ROOT);
+            final boolean shouldPatch = reasonLower.contains("page needs to be reloaded")
+                    || reasonLower.contains("reload")
+                    || ("UNPLAYABLE".equalsIgnoreCase(status)
+                    && reasonLower.contains("video unavailable"));
+
+            if (MainActivity.DEBUG && (status != null && !"OK".equalsIgnoreCase(status))) {
+                Log.d(
+                        DownloaderImpl.class.getSimpleName(),
+                        "playabilityStatus status=" + status + " reason=" + reason
+                );
+            }
+
+            if (!shouldPatch) {
+                return responseBody;
+            }
+
+            playabilityStatus.put("status", "OK");
+            playabilityStatus.remove("reason");
+
+            final String patched = JsonWriter.string(json);
+            if (MainActivity.DEBUG) {
+                Log.d(
+                        DownloaderImpl.class.getSimpleName(),
+                        "Patched playabilityStatus for " + url
+                );
+            }
+            return patched;
+        } catch (final Exception e) {
+            if (MainActivity.DEBUG) {
+                Log.w(
+                        DownloaderImpl.class.getSimpleName(),
+                        "Failed to patch playabilityStatus for " + url,
+                        e
+                );
+            }
+            return responseBody;
         }
     }
 }

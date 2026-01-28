@@ -34,6 +34,7 @@ import androidx.preference.PreferenceManager;
 
 import org.schabi.newpipe.MainActivity;
 import org.schabi.newpipe.R;
+import org.schabi.newpipe.DownloaderImpl;
 import org.schabi.newpipe.extractor.Info;
 import org.schabi.newpipe.extractor.InfoItem;
 import org.schabi.newpipe.extractor.ListExtractor.InfoItemsPage;
@@ -44,6 +45,7 @@ import org.schabi.newpipe.extractor.channel.ChannelInfo;
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo;
 import org.schabi.newpipe.extractor.comments.CommentsInfo;
 import org.schabi.newpipe.extractor.comments.CommentsInfoItem;
+import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException;
 import org.schabi.newpipe.extractor.kiosk.KioskInfo;
 import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler;
 import org.schabi.newpipe.extractor.playlist.PlaylistInfo;
@@ -51,10 +53,16 @@ import org.schabi.newpipe.extractor.search.SearchInfo;
 import org.schabi.newpipe.extractor.stream.StreamInfo;
 import org.schabi.newpipe.extractor.stream.StreamInfoItem;
 import org.schabi.newpipe.extractor.suggestion.SuggestionExtractor;
+import org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper;
 import org.schabi.newpipe.util.text.TextLinkifier;
+import org.schabi.newpipe.extractor.ServiceList;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.core.Single;
@@ -63,6 +71,15 @@ import io.reactivex.rxjava3.disposables.CompositeDisposable;
 public final class ExtractorHelper {
     private static final String TAG = ExtractorHelper.class.getSimpleName();
     private static final InfoCache CACHE = InfoCache.getInstance();
+    private static final AtomicBoolean YOUTUBE_CLIENT_VERSION_REFRESHED = new AtomicBoolean(false);
+    private static final Pattern[] YOUTUBE_CLIENT_VERSION_PATTERNS = new Pattern[] {
+            Pattern.compile("INNERTUBE_CONTEXT_CLIENT_VERSION\"\\s*:\\s*\"([^\"]+)\""),
+            Pattern.compile(
+                    "\"clientName\"\\s*:\\s*\"WEB\"[^\\}]*?"
+                            + "\"clientVersion\"\\s*:\\s*\"([^\"]+)\"",
+                    Pattern.DOTALL),
+            Pattern.compile("\"clientVersion\"\\s*:\\s*\"(\\d+\\.\\d+\\.\\d+\\.\\d+)\"")
+    };
 
     private ExtractorHelper() {
         //no instance
@@ -114,8 +131,22 @@ public final class ExtractorHelper {
     public static Single<StreamInfo> getStreamInfo(final int serviceId, final String url,
                                                    final boolean forceLoad) {
         checkServiceId(serviceId);
-        return checkCache(forceLoad, serviceId, url, InfoCache.Type.STREAM,
-                Single.fromCallable(() -> StreamInfo.getInfo(NewPipe.getService(serviceId), url)));
+        Single<StreamInfo> loadFromNetwork = Single.fromCallable(() ->
+                StreamInfo.getInfo(NewPipe.getService(serviceId), url));
+
+        if (serviceId == ServiceList.YouTube.getServiceId()) {
+            loadFromNetwork = loadFromNetwork.onErrorResumeNext(throwable -> {
+                if (shouldRetryYoutubeReloadError(throwable)
+                        && refreshYoutubeClientVersionIfNeeded()) {
+                    return checkCache(true, serviceId, url, InfoCache.Type.STREAM,
+                            Single.fromCallable(() ->
+                                    StreamInfo.getInfo(NewPipe.getService(serviceId), url)));
+                }
+                return Single.error(throwable);
+            });
+        }
+
+        return checkCache(forceLoad, serviceId, url, InfoCache.Type.STREAM, loadFromNetwork);
     }
 
     public static Single<ChannelInfo> getChannelInfo(final int serviceId, final String url,
@@ -354,5 +385,88 @@ public final class ExtractorHelper {
         } else {
             return text.substring(0, 1).toUpperCase() + text.substring(1).toLowerCase();
         }
+    }
+
+    private static boolean shouldRetryYoutubeReloadError(final Throwable throwable) {
+        ContentNotAvailableException exception = null;
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof ContentNotAvailableException) {
+                exception = (ContentNotAvailableException) current;
+                break;
+            }
+            current = current.getCause();
+        }
+
+        if (exception == null || exception.getMessage() == null) {
+            return false;
+        }
+
+        final String message = exception.getMessage().toLowerCase(Locale.ROOT);
+        return message.contains("page needs to be reloaded");
+    }
+
+    private static boolean refreshYoutubeClientVersionIfNeeded() {
+        if (!YOUTUBE_CLIENT_VERSION_REFRESHED.compareAndSet(false, true)) {
+            return false;
+        }
+
+        boolean success = false;
+        try {
+            final DownloaderImpl downloader = DownloaderImpl.getInstance();
+            if (downloader == null) {
+                Log.w(TAG, "Downloader not initialized; cannot refresh YouTube client version");
+                return false;
+            }
+
+            final String html = downloader.get("https://www.youtube.com").responseBody();
+            final String version = extractYoutubeClientVersion(html);
+            if (version == null || version.isEmpty()) {
+                Log.w(TAG, "Could not extract YouTube client version from HTML");
+                return false;
+            }
+
+            YoutubeParsingHelper.resetClientVersion();
+            try {
+                final java.lang.reflect.Field clientVersionField =
+                        YoutubeParsingHelper.class.getDeclaredField("clientVersion");
+                clientVersionField.setAccessible(true);
+                clientVersionField.set(null, version);
+
+                final java.lang.reflect.Field extractedField =
+                        YoutubeParsingHelper.class.getDeclaredField("clientVersionExtracted");
+                extractedField.setAccessible(true);
+                extractedField.setBoolean(null, true);
+            } catch (final ReflectiveOperationException e) {
+                Log.e(TAG, "Failed to set YouTube client version via reflection", e);
+                return false;
+            }
+
+            Log.i(TAG, "Updated YouTube client version to " + version);
+            success = true;
+            return true;
+        } catch (final Exception e) {
+            Log.e(TAG, "Failed to refresh YouTube client version", e);
+            return false;
+        } finally {
+            if (!success) {
+                YOUTUBE_CLIENT_VERSION_REFRESHED.set(false);
+            }
+        }
+    }
+
+    private static String extractYoutubeClientVersion(final String html) {
+        if (html == null || html.isEmpty()) {
+            return null;
+        }
+
+        for (final Pattern pattern : YOUTUBE_CLIENT_VERSION_PATTERNS) {
+            final Matcher matcher = pattern.matcher(html);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+        }
+
+        return null;
     }
 }

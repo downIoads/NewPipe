@@ -878,8 +878,15 @@ public final class VideoDetailFragment
                             openVideoPlayerAutoFullscreen();
                         }
                     }
-                }, throwable -> showError(new ErrorInfo(throwable, UserAction.REQUESTED_STREAM,
-                        url == null ? "no url" : url, serviceId, url)));
+                }, throwable -> {
+                    if (DEBUG) {
+                        Log.e(TAG, "Failed to load stream info: serviceId="
+                                + serviceId + ", url=" + url + ", forceLoad=" + forceLoad
+                                + ", addToBackStack=" + addToBackStack, throwable);
+                    }
+                    showError(new ErrorInfo(throwable, UserAction.REQUESTED_STREAM,
+                            url == null ? "no url" : url, serviceId, url));
+                });
     }
 
     /*//////////////////////////////////////////////////////////////////////////

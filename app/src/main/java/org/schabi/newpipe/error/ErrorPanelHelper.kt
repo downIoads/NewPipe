@@ -2,6 +2,7 @@ package org.schabi.newpipe.error
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
@@ -63,6 +64,27 @@ class ErrorPanelHelper(
     }
 
     fun showError(errorInfo: ErrorInfo) {
+        if (DEBUG) {
+            val debugLog = buildString {
+                append("showError() action=").append(errorInfo.userAction)
+                    .append(" request=").append(errorInfo.request)
+                    .append(" service=").append(errorInfo.getServiceName())
+                    .append(" message=").append(errorInfo.getMessage(context))
+                    .append(" reportable=").append(errorInfo.isReportable)
+                    .append(" retryable=").append(errorInfo.isRetryable)
+                    .append(" openInBrowser=").append(errorInfo.openInBrowserUrl)
+                    .append(" recaptcha=").append(errorInfo.recaptchaUrl)
+                if (errorInfo.stackTraces.isNotEmpty()) {
+                    append('\n')
+                    errorInfo.stackTraces.forEachIndexed { index, stackTrace ->
+                        append("---- exception ").append(index + 1).append(" ----\n")
+                        append(stackTrace.trim()).append('\n')
+                    }
+                }
+            }
+            Log.e(TAG, debugLog)
+        }
+
         ensureDefaultVisibility()
         errorTextView.text = errorInfo.getMessage(context)
 
