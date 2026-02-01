@@ -202,20 +202,21 @@ public class KioskFragment extends BaseListInfoFragment<StreamInfoItem, KioskInf
                 && YOUTUBE_TRENDING_KIOSK_ID.equals(kioskId)) {
             try {
                 final StreamingService service = NewPipe.getService(serviceId);
-                final ListLinkHandlerFactory kioskFactory;
-                if (service.getKioskList().getAvailableKiosks().contains(YOUTUBE_LIVE_KIOSK_ID)) {
+                ListLinkHandlerFactory kioskFactory;
+                try {
                     kioskId = YOUTUBE_LIVE_KIOSK_ID;
                     kioskFactory = service.getKioskList()
                             .getListLinkHandlerFactoryByType(kioskId);
-                } else {
+                } catch (final Exception liveFallbackError) {
                     final String defaultKioskId = service.getKioskList().getDefaultKioskId();
-                    if (!YOUTUBE_TRENDING_KIOSK_ID.equals(defaultKioskId)) {
-                        kioskId = defaultKioskId;
-                        kioskFactory = service.getKioskList()
-                                .getListLinkHandlerFactoryByType(kioskId);
-                    } else {
+                    if (YOUTUBE_TRENDING_KIOSK_ID.equals(defaultKioskId)) {
+                        Log.w(TAG, "YouTube live kiosk not available; keeping Trending",
+                                liveFallbackError);
                         return;
                     }
+                    kioskId = defaultKioskId;
+                    kioskFactory = service.getKioskList()
+                            .getListLinkHandlerFactoryByType(kioskId);
                 }
 
                 url = kioskFactory.fromId(kioskId).getUrl();
