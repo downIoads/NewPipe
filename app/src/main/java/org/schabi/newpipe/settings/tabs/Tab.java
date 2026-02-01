@@ -16,6 +16,7 @@ import org.schabi.newpipe.error.ErrorInfo;
 import org.schabi.newpipe.error.ErrorUtil;
 import org.schabi.newpipe.error.UserAction;
 import org.schabi.newpipe.extractor.NewPipe;
+import org.schabi.newpipe.extractor.ServiceList;
 import org.schabi.newpipe.extractor.StreamingService;
 import org.schabi.newpipe.extractor.exceptions.ExtractionException;
 import org.schabi.newpipe.fragments.BlankFragment;
@@ -312,6 +313,8 @@ public abstract class Tab {
 
     public static class KioskTab extends Tab {
         public static final int ID = 5;
+        private static final String YOUTUBE_TRENDING_KIOSK_ID = "Trending";
+        private static final String YOUTUBE_LIVE_KIOSK_ID = "live";
         private static final String JSON_KIOSK_SERVICE_ID_KEY = "service_id";
         private static final String JSON_KIOSK_ID_KEY = "kiosk_id";
         private int kioskServiceId;
@@ -337,7 +340,7 @@ public abstract class Tab {
 
         @Override
         public String getTabName(final Context context) {
-            return KioskTranslator.getTranslatedKioskName(kioskId, context);
+            return KioskTranslator.getTranslatedKioskName(getDisplayKioskId(), context);
         }
 
         @DrawableRes
@@ -355,6 +358,14 @@ public abstract class Tab {
         @Override
         public KioskFragment getFragment(final Context context) throws ExtractionException {
             return KioskFragment.getInstance(kioskServiceId, kioskId);
+        }
+
+        private String getDisplayKioskId() {
+            if (kioskServiceId == ServiceList.YouTube.getServiceId()
+                    && YOUTUBE_TRENDING_KIOSK_ID.equals(kioskId)) {
+                return YOUTUBE_LIVE_KIOSK_ID;
+            }
+            return kioskId;
         }
 
         @Override

@@ -4,10 +4,12 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.schabi.newpipe.extractor.Image;
+import org.schabi.newpipe.extractor.ServiceList;
 import org.schabi.newpipe.extractor.stream.StreamInfo;
 import org.schabi.newpipe.extractor.stream.StreamInfoItem;
 import org.schabi.newpipe.extractor.stream.StreamType;
 import org.schabi.newpipe.util.ExtractorHelper;
+import org.schabi.newpipe.util.StreamTypeUtil;
 
 import java.io.Serializable;
 import java.util.List;
@@ -139,7 +141,9 @@ public class PlayQueueItem implements Serializable {
 
     @NonNull
     public Single<StreamInfo> getStream() {
-        return ExtractorHelper.getStreamInfo(this.serviceId, this.url, false)
+        final boolean forceLoad = serviceId == ServiceList.YouTube.getServiceId()
+                && StreamTypeUtil.isLiveStream(streamType);
+        return ExtractorHelper.getStreamInfo(this.serviceId, this.url, forceLoad)
                 .subscribeOn(Schedulers.io())
                 .doOnError(throwable -> error = throwable);
     }

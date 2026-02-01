@@ -54,6 +54,7 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
+import android.os.SystemClock;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -181,6 +182,8 @@ public final class Player implements PlaybackListener, Listener {
 
     public static final int RENDERER_UNAVAILABLE = -1;
     private static final String PICASSO_PLAYER_THUMBNAIL_TAG = "PICASSO_PLAYER_THUMBNAIL_TAG";
+    private static final int LIVE_END_MAX_RETRIES = 2;
+    private static final long LIVE_END_RETRY_RESET_MILLIS = 60_000L;
 
     /*//////////////////////////////////////////////////////////////////////////
     // Playback
@@ -232,6 +235,10 @@ public final class Player implements PlaybackListener, Listener {
     // minimized to background but will resume automatically to the original player type
     private boolean isAudioOnly = false;
     private boolean isPrepared = false;
+    @Nullable
+    private String liveEndRetryUrl = null;
+    private int liveEndRetryCount = 0;
+    private long liveEndRetryElapsed = 0L;
 
     /*//////////////////////////////////////////////////////////////////////////
     // UIs, listeners and disposables
@@ -1120,6 +1127,16 @@ public final class Player implements PlaybackListener, Listener {
                 changeState(playWhenReady ? STATE_PLAYING : STATE_PAUSED);
                 break;
             case com.google.android.exoplayer2.Player.STATE_ENDED: // 4
+                if (shouldRetryLiveEnd()) {
+                    Log.w(TAG, "Live stream ended unexpectedly; reloading from live edge: "
+                            + currentMetadata.getStreamUrl());
+                    if (playQueue != null) {
+                        playQueue.unsetRecovery(playQueue.getIndex());
+                    }
+                    isPrepared = false;
+                    reloadPlayQueueManager();
+                    break;
+                }
                 changeState(STATE_COMPLETED);
                 saveStreamProgressStateCompleted();
                 isPrepared = false;
@@ -2397,6 +2414,37 @@ public final class Player implements PlaybackListener, Listener {
             }
             return false;
         }
+    }
+
+    private boolean shouldRetryLiveEnd() {
+        if (currentMetadata == null) {
+            return false;
+        }
+        if (currentMetadata.getServiceId() != YouTube.getServiceId()) {
+            return false;
+        }
+        if (!StreamTypeUtil.isLiveStream(currentMetadata.getStreamType())) {
+            return false;
+        }
+        final String url = currentMetadata.getStreamUrl();
+        if (url == null || url.isEmpty()) {
+            return false;
+        }
+
+        final long now = SystemClock.elapsedRealtime();
+        if (!url.equals(liveEndRetryUrl)
+                || now - liveEndRetryElapsed > LIVE_END_RETRY_RESET_MILLIS) {
+            liveEndRetryUrl = url;
+            liveEndRetryCount = 0;
+        }
+
+        if (liveEndRetryCount >= LIVE_END_MAX_RETRIES) {
+            return false;
+        }
+
+        liveEndRetryCount++;
+        liveEndRetryElapsed = now;
+        return true;
     }
 
     public void setPlaybackQuality(@Nullable final String quality) {

@@ -1,6 +1,7 @@
 package org.schabi.newpipe.fragments.list.kiosk;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -16,6 +17,7 @@ import com.evernote.android.state.State;
 import org.schabi.newpipe.R;
 import org.schabi.newpipe.error.ErrorInfo;
 import org.schabi.newpipe.error.UserAction;
+import org.schabi.newpipe.extractor.InfoItem;
 import org.schabi.newpipe.extractor.ListExtractor;
 import org.schabi.newpipe.extractor.NewPipe;
 import org.schabi.newpipe.extractor.ServiceList;
@@ -30,6 +32,9 @@ import org.schabi.newpipe.fragments.list.BaseListInfoFragment;
 import org.schabi.newpipe.util.ExtractorHelper;
 import org.schabi.newpipe.util.KioskTranslator;
 import org.schabi.newpipe.util.Localization;
+import org.schabi.newpipe.util.StreamTypeUtil;
+
+import java.util.List;
 
 import io.reactivex.rxjava3.core.Single;
 
@@ -58,6 +63,9 @@ import io.reactivex.rxjava3.core.Single;
  */
 
 public class KioskFragment extends BaseListInfoFragment<StreamInfoItem, KioskInfo> {
+    private static final String TAG = KioskFragment.class.getSimpleName();
+    private static final String YOUTUBE_TRENDING_KIOSK_ID = "Trending";
+    private static final String YOUTUBE_LIVE_KIOSK_ID = "live";
     @State
     String kioskId = "";
     String kioskTranslatedName;
@@ -97,6 +105,7 @@ public class KioskFragment extends BaseListInfoFragment<StreamInfoItem, KioskInf
     public void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        ensureValidKioskId();
         kioskTranslatedName = KioskTranslator.getTranslatedKioskName(kioskId, activity);
         name = kioskTranslatedName;
         contentCountry = Localization.getPreferredContentCountry(requireContext());
@@ -144,7 +153,13 @@ public class KioskFragment extends BaseListInfoFragment<StreamInfoItem, KioskInf
 
     @Override
     public Single<KioskInfo> loadResult(final boolean forceReload) {
+        ensureValidKioskId();
         contentCountry = Localization.getPreferredContentCountry(requireContext());
+        Log.d(TAG, "Loading kiosk: serviceId=" + serviceId
+                + " kioskId=" + kioskId
+                + " url=" + url
+                + " forceReload=" + forceReload
+                + " contentCountry=" + contentCountry);
         return ExtractorHelper.getKioskInfo(serviceId, url, forceReload);
     }
 
@@ -163,6 +178,7 @@ public class KioskFragment extends BaseListInfoFragment<StreamInfoItem, KioskInf
 
         name = kioskTranslatedName;
         setTitle(kioskTranslatedName);
+        filterLiveItemsIfNeeded();
     }
 
     @Override
@@ -172,6 +188,75 @@ public class KioskFragment extends BaseListInfoFragment<StreamInfoItem, KioskInf
         if (MediaCCCLiveStreamKiosk.KIOSK_ID.equals(currentInfo.getId())
                 && ServiceList.MediaCCC.getServiceId() == currentInfo.getServiceId()) {
             setEmptyStateMessage(R.string.no_live_streams);
+        }
+    }
+
+    @Override
+    public void handleNextItems(@NonNull final ListExtractor.InfoItemsPage<StreamInfoItem> result) {
+        super.handleNextItems(result);
+        filterLiveItemsIfNeeded();
+    }
+
+    private void ensureValidKioskId() {
+        if (serviceId == ServiceList.YouTube.getServiceId()
+                && YOUTUBE_TRENDING_KIOSK_ID.equals(kioskId)) {
+            try {
+                final StreamingService service = NewPipe.getService(serviceId);
+                final ListLinkHandlerFactory kioskFactory;
+                if (service.getKioskList().getAvailableKiosks().contains(YOUTUBE_LIVE_KIOSK_ID)) {
+                    kioskId = YOUTUBE_LIVE_KIOSK_ID;
+                    kioskFactory = service.getKioskList()
+                            .getListLinkHandlerFactoryByType(kioskId);
+                } else {
+                    final String defaultKioskId = service.getKioskList().getDefaultKioskId();
+                    if (!YOUTUBE_TRENDING_KIOSK_ID.equals(defaultKioskId)) {
+                        kioskId = defaultKioskId;
+                        kioskFactory = service.getKioskList()
+                                .getListLinkHandlerFactoryByType(kioskId);
+                    } else {
+                        return;
+                    }
+                }
+
+                url = kioskFactory.fromId(kioskId).getUrl();
+                kioskTranslatedName = KioskTranslator.getTranslatedKioskName(kioskId,
+                        requireContext());
+                name = kioskTranslatedName;
+                Log.w(TAG, "YouTube Trending kiosk deprecated; switched to kioskId="
+                        + kioskId + " url=" + url);
+            } catch (final ExtractionException e) {
+                Log.e(TAG, "Failed to resolve fallback kiosk for YouTube Trending", e);
+            }
+        }
+    }
+
+    private void filterLiveItemsIfNeeded() {
+        if (serviceId != ServiceList.YouTube.getServiceId()
+                || !YOUTUBE_LIVE_KIOSK_ID.equals(kioskId)) {
+            return;
+        }
+
+        final List<InfoItem> items = infoListAdapter.getItemsList();
+        if (items.isEmpty()) {
+            return;
+        }
+
+        final int before = items.size();
+        items.removeIf(item -> !(item instanceof StreamInfoItem)
+                || !StreamTypeUtil.isLiveStream(((StreamInfoItem) item).getStreamType())
+                || ((StreamInfoItem) item).getDuration() > 0);
+
+        if (items.size() != before) {
+            infoListAdapter.notifyDataSetChanged();
+            showListFooter(hasMoreItems());
+        }
+
+        if (items.isEmpty()) {
+            if (hasMoreItems() && !isLoading.get()) {
+                loadMoreItems();
+            } else if (!hasMoreItems()) {
+                showEmptyState();
+            }
         }
     }
 }

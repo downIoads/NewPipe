@@ -1,6 +1,7 @@
 package org.schabi.newpipe.fragments.list.kiosk;
 
 import android.os.Bundle;
+import android.util.Log;
 
 import org.schabi.newpipe.error.ErrorInfo;
 import org.schabi.newpipe.error.UserAction;
@@ -11,6 +12,7 @@ import org.schabi.newpipe.util.KioskTranslator;
 import org.schabi.newpipe.util.ServiceHelper;
 
 public class DefaultKioskFragment extends KioskFragment {
+    private static final String TAG = DefaultKioskFragment.class.getSimpleName();
 
     @Override
     public void onCreate(final Bundle savedInstanceState) {
@@ -41,6 +43,10 @@ public class DefaultKioskFragment extends KioskFragment {
             final KioskList kioskList = NewPipe.getService(serviceId).getKioskList();
             kioskId = kioskList.getDefaultKioskId();
             url = kioskList.getListLinkHandlerFactoryByType(kioskId).fromId(kioskId).getUrl();
+
+            Log.d(TAG, "Default kiosk selected: serviceId=" + serviceId
+                    + " kioskId=" + kioskId
+                    + " url=" + url);
 
             kioskTranslatedName = KioskTranslator.getTranslatedKioskName(kioskId, requireContext());
             name = kioskTranslatedName;

@@ -225,7 +225,11 @@ public final class ExtractorHelper {
                                                  final String url,
                                                  final boolean forceLoad) {
         return checkCache(forceLoad, serviceId, url, InfoCache.Type.KIOSK,
-                Single.fromCallable(() -> KioskInfo.getInfo(NewPipe.getService(serviceId), url)));
+                Single.fromCallable(() -> KioskInfo.getInfo(NewPipe.getService(serviceId), url)))
+                .doOnSubscribe(disposable -> Log.d(TAG, "Requesting kiosk info: serviceId="
+                        + serviceId + " url=" + url + " forceLoad=" + forceLoad))
+                .doOnError(throwable -> Log.e(TAG, "Kiosk info load failed: serviceId="
+                        + serviceId + " url=" + url + " forceLoad=" + forceLoad, throwable));
     }
 
     public static Single<InfoItemsPage<StreamInfoItem>> getMoreKioskItems(final int serviceId,
