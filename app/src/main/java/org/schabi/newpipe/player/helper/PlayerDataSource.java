@@ -70,6 +70,8 @@ public class PlayerDataSource {
     // Generic Data Source Factories (without or with cache)
     private final DataSource.Factory cachelessDataSourceFactory;
     private final CacheFactory cacheDataSourceFactory;
+    private final DataSource.Factory youtubeCachelessHlsDataSourceFactory;
+    private final DataSource.Factory youtubeCachelessDashDataSourceFactory;
 
     // YouTube-specific Data Source Factories (with cache)
     // They use YoutubeHttpDataSource.Factory, with different parameters each
@@ -80,7 +82,6 @@ public class PlayerDataSource {
 
     public PlayerDataSource(final Context context,
                             final TransferListener transferListener) {
-
         progressiveLoadIntervalBytes = PlayerHelper.getProgressiveLoadIntervalBytes(context);
 
         // make sure the static cache was created: needed by CacheFactories below
@@ -92,6 +93,13 @@ public class PlayerDataSource {
                 .setTransferListener(transferListener);
         cacheDataSourceFactory = new CacheFactory(context, transferListener, cache,
                 new DefaultHttpDataSource.Factory().setUserAgent(DownloaderImpl.USER_AGENT));
+
+        youtubeCachelessHlsDataSourceFactory = new DefaultDataSource.Factory(context,
+                getYoutubeHttpDataSourceFactory(false, false))
+                .setTransferListener(transferListener);
+        youtubeCachelessDashDataSourceFactory = new DefaultDataSource.Factory(context,
+                getYoutubeHttpDataSourceFactory(true, true))
+                .setTransferListener(transferListener);
 
         // YouTube-specific data source factories use getYoutubeHttpDataSourceFactory()
         ytHlsCacheDataSourceFactory = new CacheFactory(context, transferListener, cache,
@@ -124,10 +132,26 @@ public class PlayerDataSource {
                                 PLAYLIST_STUCK_TARGET_DURATION_COEFFICIENT));
     }
 
+    public HlsMediaSource.Factory getYoutubeLiveHlsMediaSourceFactory() {
+        return new HlsMediaSource.Factory(youtubeCachelessHlsDataSourceFactory)
+                .setAllowChunklessPreparation(true)
+                .setPlaylistTrackerFactory((dataSourceFactory, loadErrorHandlingPolicy,
+                                            playlistParserFactory) ->
+                        new DefaultHlsPlaylistTracker(dataSourceFactory, loadErrorHandlingPolicy,
+                                playlistParserFactory,
+                                PLAYLIST_STUCK_TARGET_DURATION_COEFFICIENT));
+    }
+
     public DashMediaSource.Factory getLiveDashMediaSourceFactory() {
         return new DashMediaSource.Factory(
                 getDefaultDashChunkSourceFactory(cachelessDataSourceFactory),
                 cachelessDataSourceFactory);
+    }
+
+    public DashMediaSource.Factory getYoutubeLiveDashMediaSourceFactory() {
+        return new DashMediaSource.Factory(
+                getDefaultDashChunkSourceFactory(youtubeCachelessDashDataSourceFactory),
+                youtubeCachelessDashDataSourceFactory);
     }
     //endregion
 

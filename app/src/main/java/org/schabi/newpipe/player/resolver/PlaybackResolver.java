@@ -195,7 +195,9 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
     @Nullable
     static MediaSource maybeBuildLiveMediaSource(final PlayerDataSource dataSource,
                                                  final StreamInfo info) {
-        if (!StreamTypeUtil.isLiveStream(info.getStreamType())) {
+        final boolean isLiveStream = StreamTypeUtil.isLiveStream(info.getStreamType())
+                || isYoutubeLiveStream(info);
+        if (!isLiveStream) {
             return null;
         }
 
@@ -215,20 +217,35 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
         return null;
     }
 
+    private static boolean isYoutubeLiveStream(final StreamInfo info) {
+        if (info.getServiceId() != ServiceList.YouTube.getServiceId()) {
+            return false;
+        }
+        if (!info.getHlsUrl().isEmpty() || !info.getDashMpdUrl().isEmpty()) {
+            return info.getDuration() <= 0;
+        }
+        return false;
+    }
+
     static MediaSource buildLiveMediaSource(final PlayerDataSource dataSource,
                                             final String sourceUrl,
                                             @C.ContentType final int type,
                                             final MediaItemTag metadata) throws ResolverException {
         final MediaSource.Factory factory;
+        final boolean isYoutube = metadata.getServiceId() == ServiceList.YouTube.getServiceId();
         switch (type) {
             case C.CONTENT_TYPE_SS:
                 factory = dataSource.getLiveSsMediaSourceFactory();
                 break;
             case C.CONTENT_TYPE_DASH:
-                factory = dataSource.getLiveDashMediaSourceFactory();
+                factory = isYoutube
+                        ? dataSource.getYoutubeLiveDashMediaSourceFactory()
+                        : dataSource.getLiveDashMediaSourceFactory();
                 break;
             case C.CONTENT_TYPE_HLS:
-                factory = dataSource.getLiveHlsMediaSourceFactory();
+                factory = isYoutube
+                        ? dataSource.getYoutubeLiveHlsMediaSourceFactory()
+                        : dataSource.getLiveHlsMediaSourceFactory();
                 break;
             case C.CONTENT_TYPE_OTHER:
             case C.CONTENT_TYPE_RTSP:

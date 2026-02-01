@@ -142,7 +142,7 @@ public class PlayQueueItem implements Serializable {
     @NonNull
     public Single<StreamInfo> getStream() {
         final boolean forceLoad = serviceId == ServiceList.YouTube.getServiceId()
-                && StreamTypeUtil.isLiveStream(streamType);
+                && (StreamTypeUtil.isLiveStream(streamType) || duration <= 0);
         return ExtractorHelper.getStreamInfo(this.serviceId, this.url, forceLoad)
                 .subscribeOn(Schedulers.io())
                 .doOnError(throwable -> error = throwable);
