@@ -41,7 +41,7 @@ class ImportExportManager(
             // add the legacy vulnerable serialized preferences (will be removed in the future)
             ZipHelper.addFileToZip(
                 outZip,
-                BackupFileLocator.FILE_NAME_SERIALIZED_PREFS
+                BackupFileLocator.Companion.FILE_NAME_JSON_PREFS
             ) { byteOutput ->
                 ObjectOutputStream(byteOutput).use { output ->
                     output.writeObject(exportedPreferences)
@@ -99,7 +99,7 @@ class ImportExportManager(
         replaceWith = ReplaceWith("exportHasJsonPrefs")
     )
     fun exportHasSerializedPrefs(zipFile: StoredFileHelper): Boolean {
-        return ZipHelper.zipContainsFile(zipFile, BackupFileLocator.FILE_NAME_SERIALIZED_PREFS)
+        return ZipHelper.zipContainsFile(zipFile, BackupFileLocator.Companion.FILE_NAME_JSON_PREFS)
     }
 
     fun exportHasJsonPrefs(zipFile: StoredFileHelper): Boolean {
@@ -115,7 +115,7 @@ class ImportExportManager(
     )
     @Throws(IOException::class, ClassNotFoundException::class)
     fun loadSerializedPrefs(zipFile: StoredFileHelper, preferences: SharedPreferences) {
-        ZipHelper.extractFileFromZip(zipFile, BackupFileLocator.FILE_NAME_SERIALIZED_PREFS) {
+        ZipHelper.extractFileFromZip(zipFile, BackupFileLocator.Companion.FILE_NAME_JSON_PREFS) {
             PreferencesObjectInputStream(it).use { input ->
                 @Suppress("UNCHECKED_CAST")
                 val entries = input.readObject() as Map<String, *>
@@ -154,7 +154,7 @@ class ImportExportManager(
             }
         }.let { fileExists ->
             if (!fileExists) {
-                throw FileNotFoundException(BackupFileLocator.FILE_NAME_SERIALIZED_PREFS)
+                throw FileNotFoundException(BackupFileLocator.Companion.FILE_NAME_JSON_PREFS)
             }
         }
     }

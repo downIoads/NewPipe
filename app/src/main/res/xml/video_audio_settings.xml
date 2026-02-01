@@ -9,7 +9,7 @@
         android:max="0"
         android:summary="@string/audio_preamp_summary"
         android:title="@string/audio_preamp_title"
-        app:min="-30"
+        app:min="-50"
         app:showSeekBarValue="true"
         app:singleLineTitle="false"
         app:iconSpaceReserved="false" />

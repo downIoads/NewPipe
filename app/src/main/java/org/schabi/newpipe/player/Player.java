@@ -271,7 +271,7 @@ public final class Player implements PlaybackListener, Listener {
     @NonNull
     private final HistoryRecordManager recordManager;
 
-    private static final int AUDIO_PREAMP_MIN_DB = -30;
+    private static final int AUDIO_PREAMP_MIN_DB = -50;
     private static final int AUDIO_PREAMP_MAX_DB = 0;
     private static final int AUDIO_PREAMP_DEFAULT_DB = -15;
 
