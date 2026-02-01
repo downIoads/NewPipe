@@ -247,7 +247,14 @@ public class KioskFragment extends BaseListInfoFragment<StreamInfoItem, KioskInf
                 || !StreamTypeUtil.isLiveStream(((StreamInfoItem) item).getStreamType())
                 || ((StreamInfoItem) item).getDuration() > 0);
 
-        if (items.size() != before) {
+        boolean changed = items.size() != before;
+        if (items.size() > 1) {
+            items.sort((left, right) -> Long.compare(
+                    getViewCountForSort(right), getViewCountForSort(left)));
+            changed = true;
+        }
+
+        if (changed) {
             infoListAdapter.notifyDataSetChanged();
             showListFooter(hasMoreItems());
         }
@@ -259,5 +266,13 @@ public class KioskFragment extends BaseListInfoFragment<StreamInfoItem, KioskInf
                 showEmptyState();
             }
         }
+    }
+
+    private static long getViewCountForSort(@NonNull final InfoItem item) {
+        if (item instanceof StreamInfoItem) {
+            final long viewCount = ((StreamInfoItem) item).getViewCount();
+            return viewCount >= 0 ? viewCount : Long.MIN_VALUE;
+        }
+        return Long.MIN_VALUE;
     }
 }
