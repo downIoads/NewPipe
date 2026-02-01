@@ -416,7 +416,13 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
     public void onCompleted() {
         super.onCompleted();
         if (isFullscreen) {
-            toggleFullscreen();
+            final PlayerServiceEventListener fragmentListener = player.getFragmentListener()
+                    .orElse(null);
+            if (fragmentListener != null) {
+                fragmentListener.onScreenRotationButtonClicked();
+            } else {
+                toggleFullscreen();
+            }
         }
     }
     //endregion
