@@ -4,11 +4,9 @@ import android.content.Context
 import android.text.TextUtils
 import android.view.View
 import androidx.core.content.ContextCompat
-import androidx.preference.PreferenceManager
 import com.xwray.groupie.viewbinding.BindableItem
 import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
-import org.schabi.newpipe.MainActivity
 import org.schabi.newpipe.R
 import org.schabi.newpipe.database.stream.StreamWithState
 import org.schabi.newpipe.database.stream.model.StreamEntity
@@ -140,16 +138,7 @@ data class StreamItem(
     private fun getFormattedRelativeUploadDate(context: Context): String? {
         val uploadDate = stream.uploadDate
         return if (uploadDate != null) {
-            var formattedRelativeTime = Localization.relativeTime(uploadDate)
-
-            if (MainActivity.DEBUG) {
-                val key = context.getString(R.string.show_original_time_ago_key)
-                if (PreferenceManager.getDefaultSharedPreferences(context).getBoolean(key, false)) {
-                    formattedRelativeTime += " (" + stream.textualUploadDate + ")"
-                }
-            }
-
-            formattedRelativeTime
+            Localization.relativeTimeShortWithDate(context, uploadDate, stream.textualUploadDate)
         } else {
             stream.textualUploadDate
         }

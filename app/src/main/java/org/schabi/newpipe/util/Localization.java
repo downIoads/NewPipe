@@ -34,6 +34,7 @@ import org.schabi.newpipe.extractor.stream.AudioTrackType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.NumberFormat;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -383,6 +384,59 @@ public final class Localization {
         return prettyTime.formatUnrounded(offsetDateTime);
     }
 
+    public static String relativeTimeShort(@NonNull final OffsetDateTime offsetDateTime) {
+        final OffsetDateTime now = OffsetDateTime.now();
+        final long seconds = Math.max(1L,
+                Math.abs(Duration.between(now, offsetDateTime).getSeconds()));
+
+        final boolean isFuture = offsetDateTime.isAfter(now);
+        final long value;
+        final String unit;
+        if (seconds < 60L) {
+            value = seconds;
+            unit = "s";
+        } else if (seconds < 3600L) {
+            value = seconds / 60L;
+            unit = "min";
+        } else if (seconds < 86400L) {
+            value = seconds / 3600L;
+            unit = "h";
+        } else if (seconds < 604800L) {
+            value = seconds / 86400L;
+            unit = "d";
+        } else if (seconds < 2592000L) {
+            value = seconds / 604800L;
+            unit = "w";
+        } else if (seconds < 31536000L) {
+            value = seconds / 2592000L;
+            unit = "mo";
+        } else {
+            value = seconds / 31536000L;
+            unit = "y";
+        }
+
+        final String formattedValue = localizeNumber(value);
+        final String base = formattedValue + unit;
+        return isFuture ? "in " + base : base + " ago";
+    }
+
+    public static String relativeTimeShort(@NonNull final OffsetDateTime offsetDateTime,
+                                           @Nullable final Context context,
+                                           @Nullable final String textual) {
+        final String relative = relativeTimeShort(offsetDateTime);
+        if (DEBUG && context != null && !TextUtils.isEmpty(textual) && PreferenceManager
+                .getDefaultSharedPreferences(context)
+                .getBoolean(context.getString(R.string.show_original_time_ago_key), false)) {
+            return relative + " (" + textual + ")";
+        }
+        return relative;
+    }
+
+    public static String formatDateIso(@NonNull final OffsetDateTime offsetDateTime) {
+        return DateTimeFormatter.ISO_LOCAL_DATE
+            .format(offsetDateTime.atZoneSameInstant(ZoneId.systemDefault()));
+    }
+
     /**
      * @param context the Android context; if {@code null} then even if in debug mode and the
      *                setting is enabled, {@code textual} will not be shown next to {@code parsed}
@@ -407,6 +461,28 @@ public final class Localization {
         } else {
             return relativeTime(parsed.offsetDateTime());
         }
+    }
+
+    @Nullable
+    public static String relativeTimeShortWithDate(@Nullable final Context context,
+                                                   @Nullable final OffsetDateTime offsetDateTime,
+                                                   @Nullable final String textual) {
+        if (offsetDateTime == null) {
+            return textual;
+        }
+        final String relative = relativeTimeShort(offsetDateTime, context, textual);
+        final String date = formatDateIso(offsetDateTime);
+        return concatenateStrings(relative, date);
+    }
+
+    @Nullable
+    public static String relativeTimeOrTextualShortWithDate(@Nullable final Context context,
+                                                            @Nullable final DateWrapper parsed,
+                                                            @Nullable final String textual) {
+        if (parsed == null) {
+            return textual;
+        }
+        return relativeTimeShortWithDate(context, parsed.offsetDateTime(), textual);
     }
 
     private static Locale getLocaleFromPrefs(@NonNull final Context context,

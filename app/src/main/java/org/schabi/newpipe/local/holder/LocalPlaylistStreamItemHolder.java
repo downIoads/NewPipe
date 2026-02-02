@@ -1,5 +1,6 @@
 package org.schabi.newpipe.local.holder;
 
+import android.text.TextUtils;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -11,6 +12,7 @@ import androidx.core.content.ContextCompat;
 import org.schabi.newpipe.R;
 import org.schabi.newpipe.database.LocalItem;
 import org.schabi.newpipe.database.playlist.PlaylistStreamEntry;
+import org.schabi.newpipe.database.stream.model.StreamEntity;
 import org.schabi.newpipe.ktx.ViewUtils;
 import org.schabi.newpipe.local.LocalItemBuilder;
 import org.schabi.newpipe.local.history.HistoryRecordManager;
@@ -57,10 +59,19 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
         }
         final PlaylistStreamEntry item = (PlaylistStreamEntry) localItem;
 
-        itemVideoTitleView.setText(item.getStreamEntity().getTitle());
-        itemAdditionalDetailsView.setText(Localization
-                .concatenateStrings(item.getStreamEntity().getUploader(),
-                        ServiceHelper.getNameOfServiceById(item.getStreamEntity().getServiceId())));
+        final StreamEntity stream = item.getStreamEntity();
+        itemVideoTitleView.setText(stream.getTitle());
+        final String uploadDate = Localization.relativeTimeShortWithDate(
+                itemBuilder.getContext(),
+                stream.getUploadDate(),
+                stream.getTextualUploadDate());
+        final String firstLine = Localization.concatenateStrings(stream.getUploader(),
+                ServiceHelper.getNameOfServiceById(stream.getServiceId()));
+        if (TextUtils.isEmpty(uploadDate)) {
+            itemAdditionalDetailsView.setText(firstLine);
+        } else {
+            itemAdditionalDetailsView.setText(firstLine + "\n" + uploadDate);
+        }
 
         if (item.getStreamEntity().getDuration() > 0) {
             itemDurationView.setText(Localization

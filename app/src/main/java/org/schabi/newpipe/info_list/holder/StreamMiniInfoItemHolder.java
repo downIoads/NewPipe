@@ -1,5 +1,6 @@
 package org.schabi.newpipe.info_list.holder;
 
+import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
@@ -53,7 +54,15 @@ public class StreamMiniInfoItemHolder extends InfoItemHolder {
         final StreamInfoItem item = (StreamInfoItem) infoItem;
 
         itemVideoTitleView.setText(item.getName());
-        itemUploaderView.setText(item.getUploaderName());
+        final String uploadDate = Localization.relativeTimeOrTextualShortWithDate(
+                itemBuilder.getContext(),
+                item.getUploadDate(),
+                item.getTextualUploadDate());
+        if (TextUtils.isEmpty(uploadDate)) {
+            itemUploaderView.setText(item.getUploaderName());
+        } else {
+            itemUploaderView.setText(item.getUploaderName() + "\n" + uploadDate);
+        }
 
         if (item.getDuration() > 0) {
             itemDurationView.setText(Localization.getDurationString(item.getDuration()));
