@@ -53,6 +53,7 @@ android {
     buildTypes {
         debug {
             isDebuggable = true
+            isZipAlignEnabled = true
 
             // suffix the app id and the app name with git branch name
             val defaultBranches = listOf("master", "dev")
