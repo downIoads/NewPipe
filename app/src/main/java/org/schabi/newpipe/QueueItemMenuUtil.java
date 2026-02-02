@@ -1,7 +1,6 @@
 package org.schabi.newpipe;
 
 import static org.schabi.newpipe.util.SparseItemUtil.fetchStreamInfoAndSaveToDatabase;
-import static org.schabi.newpipe.util.external_communication.ShareUtils.shareText;
 
 import android.content.Context;
 import android.view.ContextThemeWrapper;
@@ -17,6 +16,7 @@ import org.schabi.newpipe.player.playqueue.PlayQueue;
 import org.schabi.newpipe.player.playqueue.PlayQueueItem;
 import org.schabi.newpipe.util.NavigationHelper;
 import org.schabi.newpipe.util.SparseItemUtil;
+import org.schabi.newpipe.util.external_communication.ShareUtils;
 
 import java.util.List;
 
@@ -74,8 +74,7 @@ public final class QueueItemMenuUtil {
                             ));
                     return true;
                 case R.id.menu_item_share:
-                    shareText(context, item.getTitle(), item.getUrl(),
-                            item.getThumbnails());
+                    ShareUtils.copyToClipboard(context, item.getUrl());
                     return true;
                 case R.id.menu_item_download:
                     fetchStreamInfoAndSaveToDatabase(context, item.getServiceId(), item.getUrl(),

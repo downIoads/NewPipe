@@ -512,8 +512,7 @@ public final class VideoDetailFragment
             }
         });
         binding.detailControlsShare.setOnClickListener(makeOnClickListener(info ->
-                ShareUtils.shareText(requireContext(), info.getName(), info.getUrl(),
-                        info.getThumbnails())));
+                ShareUtils.copyToClipboard(requireContext(), info.getUrl())));
         binding.detailControlsOpenInBrowser.setOnClickListener(makeOnClickListener(info ->
                 ShareUtils.openUrlInBrowser(requireContext(), info.getUrl())));
         binding.detailControlsPlayWithKodi.setOnClickListener(makeOnClickListener(info ->

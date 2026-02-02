@@ -240,8 +240,7 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
                 ShareUtils.openUrlInBrowser(requireContext(), url);
                 break;
             case R.id.menu_item_share:
-                ShareUtils.shareText(requireContext(), name, url,
-                        currentInfo == null ? List.of() : currentInfo.getThumbnails());
+                ShareUtils.copyToClipboard(requireContext(), url);
                 break;
             case R.id.menu_item_bookmark:
                 onBookmarkClicked();

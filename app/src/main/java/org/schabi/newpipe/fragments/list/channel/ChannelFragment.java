@@ -182,8 +182,8 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
                             break;
                         case R.id.menu_item_share:
                             if (currentInfo != null) {
-                                ShareUtils.shareText(requireContext(), name,
-                                        currentInfo.getOriginalUrl(), currentInfo.getAvatars());
+                                ShareUtils.copyToClipboard(requireContext(),
+                                        currentInfo.getOriginalUrl());
                             }
                             break;
                         default:
