@@ -1,5 +1,6 @@
 package org.schabi.newpipe.player.seekbarpreview;
 
+import static org.schabi.newpipe.MainActivity.DEBUG;
 import static org.schabi.newpipe.player.seekbarpreview.SeekbarPreviewThumbnailHelper.SeekbarPreviewThumbnailType;
 import static org.schabi.newpipe.player.seekbarpreview.SeekbarPreviewThumbnailHelper.getSeekbarPreviewThumbnailType;
 
@@ -39,9 +40,19 @@ public class SeekbarPreviewThumbnailHolder {
     // This ensures that if the reset is still undergoing
     // and another reset starts, only the last reset is processed
     private UUID currentUpdateRequestIdentifier = UUID.randomUUID();
+    private boolean loggedEmptyDataOnce;
+    private boolean loggedNullFrameOnce;
+    private boolean loggedNullBitmapOnce;
 
     public void resetFrom(@NonNull final Context context, final List<Frameset> framesets) {
         final int seekbarPreviewType = getSeekbarPreviewThumbnailType(context);
+        loggedEmptyDataOnce = false;
+        loggedNullFrameOnce = false;
+        loggedNullBitmapOnce = false;
+
+        Log.d(TAG, "resetFrom(): framesets="
+                + (framesets == null ? "null" : framesets.size())
+                + ", type=" + seekbarPreviewType);
 
         final UUID updateRequestIdentifier = UUID.randomUUID();
         this.currentUpdateRequestIdentifier = updateRequestIdentifier;
@@ -71,6 +82,11 @@ public class SeekbarPreviewThumbnailHolder {
             return;
         }
 
+        if (framesets == null || framesets.isEmpty()) {
+            Log.d(TAG, "No framesets provided");
+            return;
+        }
+
         final Frameset frameset = getFrameSetForType(framesets, seekbarPreviewType);
         if (frameset == null) {
             Log.d(TAG, "No frameset was found to fill seekbarPreviewData");
@@ -79,7 +95,12 @@ public class SeekbarPreviewThumbnailHolder {
 
         Log.d(TAG, "Frameset quality info: "
                 + "[width=" + frameset.getFrameWidth()
-                + ", heigh=" + frameset.getFrameHeight() + "]");
+                + ", height=" + frameset.getFrameHeight()
+                + ", totalCount=" + frameset.getTotalCount()
+                + ", durationPerFrame=" + frameset.getDurationPerFrame()
+                + ", framesPerPageX=" + frameset.getFramesPerPageX()
+                + ", framesPerPageY=" + frameset.getFramesPerPageY()
+                + ", urls=" + frameset.getUrls().size() + "]");
 
         // Abort method execution if we are not the latest request
         if (!isRequestIdentifierCurrent(updateRequestIdentifier)) {
@@ -115,6 +136,9 @@ public class SeekbarPreviewThumbnailHolder {
 
         // Process each url in the frameset
         for (final String url : frameset.getUrls()) {
+            if (DEBUG && currentPosMs == 0) {
+                Log.d(TAG, "Loading storyboard url: " + url);
+            }
             // get the bitmap
             final Bitmap srcBitMap = getBitMapFrom(url);
 
@@ -152,7 +176,8 @@ public class SeekbarPreviewThumbnailHolder {
         }
 
         if (sw != null) {
-            Log.d(TAG, "Generation of seekbarPreviewData took " + sw.stop());
+            Log.d(TAG, "Generation of seekbarPreviewData took " + sw.stop()
+                    + " (entries=" + seekbarPreviewData.size() + ")");
         }
     }
 
@@ -215,6 +240,10 @@ public class SeekbarPreviewThumbnailHolder {
                         + sw.stop());
             }
 
+            if (bitmap == null && !loggedNullBitmapOnce) {
+                loggedNullBitmapOnce = true;
+                Log.w(TAG, "Bitmap download returned null for url='" + url + "'");
+            }
             return bitmap;
         } catch (final Exception ex) {
             Log.w(TAG, "Failed to get bitmap for seekbarPreview from url='" + url
@@ -230,9 +259,11 @@ public class SeekbarPreviewThumbnailHolder {
     public Optional<Bitmap> getBitmapAt(final int positionInMs) {
         // Get the frame supplier closest to the requested position
         Supplier<Bitmap> closestFrame = () -> null;
+        final int size;
         synchronized (seekbarPreviewData) {
+            size = seekbarPreviewData.size();
             int min = Integer.MAX_VALUE;
-            for (int i = 0; i < seekbarPreviewData.size(); i++) {
+            for (int i = 0; i < size; i++) {
                 final int pos = Math.abs(seekbarPreviewData.keyAt(i) - positionInMs);
                 if (pos < min) {
                     closestFrame = seekbarPreviewData.valueAt(i);
@@ -241,6 +272,24 @@ public class SeekbarPreviewThumbnailHolder {
             }
         }
 
-        return Optional.ofNullable(closestFrame.get());
+        final Bitmap bitmap = closestFrame.get();
+        if (size == 0) {
+            if (!loggedEmptyDataOnce) {
+                loggedEmptyDataOnce = true;
+                Log.d(TAG, "No seekbar preview entries available at " + positionInMs + "ms");
+            }
+        } else if (bitmap == null && !loggedNullFrameOnce) {
+            loggedNullFrameOnce = true;
+            Log.d(TAG, "Seekbar preview entries exist, but bitmap is null at "
+                    + positionInMs + "ms (entries=" + size + ")");
+        }
+
+        return Optional.ofNullable(bitmap);
+    }
+
+    public int getEntryCount() {
+        synchronized (seekbarPreviewData) {
+            return seekbarPreviewData.size();
+        }
     }
 }

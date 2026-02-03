@@ -80,8 +80,8 @@ public final class SeekbarPreviewThumbnailHelper {
         try {
             final int srcWidth = previewThumbnail.getWidth() > 0 ? previewThumbnail.getWidth() : 1;
             final int newWidth = MathUtils.clamp(
-                    // Use 1/4 of the width for the preview
-                    Math.round(baseViewWidthSupplier.getAsInt() / 4f),
+                    // Use ~40% of the width for the preview
+                    Math.round(baseViewWidthSupplier.getAsInt() / 2.5f),
                     // But have a min width of 10dp
                     DeviceUtils.dpToPx(10, context),
                     // And scaling more than that factor looks really pixelated -> max
@@ -90,13 +90,19 @@ public final class SeekbarPreviewThumbnailHelper {
             final float scaleFactor = (float) newWidth / srcWidth;
             final int newHeight = (int) (previewThumbnail.getHeight() * scaleFactor);
 
-            currentSeekbarPreviewThumbnail.setImageBitmap(BitmapCompat
-                    .createScaledBitmap(previewThumbnail, newWidth, newHeight, null, true));
+            final Bitmap scaledBitmap = BitmapCompat
+                    .createScaledBitmap(previewThumbnail, newWidth, newHeight, null, true);
+            currentSeekbarPreviewThumbnail.setImageBitmap(scaledBitmap);
+
+            // Only recycle the original when a new bitmap instance was created.
+            // Some AndroidX versions can return the original bitmap when no scaling is needed,
+            // and recycling that would blank out the preview.
+            if (scaledBitmap != previewThumbnail) {
+                previewThumbnail.recycle();
+            }
         } catch (final Exception ex) {
             Log.e(TAG, "Failed to resize and set seekbar preview thumbnail", ex);
             currentSeekbarPreviewThumbnail.setVisibility(View.GONE);
-        } finally {
-            previewThumbnail.recycle();
         }
     }
 }

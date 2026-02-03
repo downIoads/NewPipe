@@ -87,6 +87,7 @@ import org.schabi.newpipe.util.external_communication.ShareUtils;
 import org.schabi.newpipe.views.player.PlayerFastSeekOverlay;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -634,6 +635,9 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
             player.changeState(STATE_PAUSED_SEEK);
         }
 
+        Log.d(TAG, "Seekbar preview entries at start: "
+                + seekbarPreviewThumbnailHolder.getEntryCount());
+
         showControls(0);
         animate(binding.currentDisplaySeek, true, DEFAULT_CONTROLS_DURATION,
                 AnimationType.SCALE_AND_ALPHA);
@@ -1020,6 +1024,20 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
         binding.titleTextView.setText(info.getName());
         binding.channelTextView.setText(info.getUploaderName());
 
+        Log.d(TAG, "Stream preview framesets: " + info.getPreviewFrames().size());
+        if (!info.getErrors().isEmpty()) {
+            Log.d(TAG, "Stream info errors: " + info.getErrors().size());
+            for (final Throwable error : info.getErrors()) {
+                final String message = error.getMessage();
+                if (message != null
+                        && (message.toLowerCase(Locale.ROOT).contains("frame")
+                        || message.toLowerCase(Locale.ROOT).contains("storyboard"))) {
+                    Log.d(TAG, "Stream info error: " + error.getClass().getSimpleName()
+                            + ": " + message);
+                    break;
+                }
+            }
+        }
         this.seekbarPreviewThumbnailHolder.resetFrom(player.getContext(), info.getPreviewFrames());
     }
 
