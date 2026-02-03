@@ -48,6 +48,7 @@ import org.schabi.newpipe.local.dialog.PlaylistDialog;
 import org.schabi.newpipe.local.playlist.RemotePlaylistManager;
 import org.schabi.newpipe.player.playqueue.PlayQueue;
 import org.schabi.newpipe.player.playqueue.PlaylistPlayQueue;
+import org.schabi.newpipe.util.DependentPreferenceHelper;
 import org.schabi.newpipe.util.ExtractorHelper;
 import org.schabi.newpipe.util.Localization;
 import org.schabi.newpipe.util.NavigationHelper;
@@ -61,9 +62,11 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.concurrent.TimeUnit;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Flowable;
+import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Single;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.disposables.Disposable;
@@ -79,6 +82,7 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
 
     private RemotePlaylistManager remotePlaylistManager;
     private PlaylistRemoteEntity playlistEntity;
+    private Disposable progressRefreshDisposable;
 
     /*//////////////////////////////////////////////////////////////////////////
     // Views
@@ -184,6 +188,7 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
 
     @Override
     public void onDestroyView() {
+        stopProgressRefresh();
         headerBinding = null;
         playlistControlBinding = null;
 
@@ -200,6 +205,18 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         }
 
         bookmarkReactor = null;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        startProgressRefresh();
+    }
+
+    @Override
+    public void onPause() {
+        stopProgressRefresh();
+        super.onPause();
     }
 
     @Override
@@ -509,6 +526,34 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
                             isDurationComplete, true))
             );
         }
+    }
+
+    private void startProgressRefresh() {
+        if (progressRefreshDisposable != null && !progressRefreshDisposable.isDisposed()) {
+            return;
+        }
+        if (itemsList == null || infoListAdapter == null
+                || !DependentPreferenceHelper.getPositionsInListsEnabled(requireContext())) {
+            return;
+        }
+        progressRefreshDisposable = Observable.interval(0, 2, TimeUnit.SECONDS)
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(ignore -> refreshVisibleProgressIndicators(),
+                        throwable -> { /* no-op */ });
+    }
+
+    private void stopProgressRefresh() {
+        if (progressRefreshDisposable != null) {
+            progressRefreshDisposable.dispose();
+            progressRefreshDisposable = null;
+        }
+    }
+
+    private void refreshVisibleProgressIndicators() {
+        if (itemsList == null || infoListAdapter == null) {
+            return;
+        }
+        infoListAdapter.updateVisibleItemStates(itemsList);
     }
 
 }

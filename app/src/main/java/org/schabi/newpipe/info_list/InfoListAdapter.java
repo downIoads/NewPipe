@@ -202,6 +202,40 @@ public class InfoListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
         return infoItemList;
     }
 
+    @Nullable
+    public InfoItem getInfoItemAtAdapterPosition(final int position) {
+        int itemPosition = position;
+        if (hasHeader()) {
+            if (itemPosition == 0) {
+                return null;
+            }
+            itemPosition--;
+        }
+        if (itemPosition < 0 || itemPosition >= infoItemList.size()) {
+            return null;
+        }
+        return infoItemList.get(itemPosition);
+    }
+
+    public void updateVisibleItemStates(@NonNull final RecyclerView recyclerView) {
+        for (int i = 0; i < recyclerView.getChildCount(); i++) {
+            final RecyclerView.ViewHolder holder =
+                    recyclerView.getChildViewHolder(recyclerView.getChildAt(i));
+            if (!(holder instanceof InfoItemHolder)) {
+                continue;
+            }
+            final int adapterPosition = holder.getBindingAdapterPosition();
+            if (adapterPosition == RecyclerView.NO_POSITION) {
+                continue;
+            }
+            final InfoItem item = getInfoItemAtAdapterPosition(adapterPosition);
+            if (item == null) {
+                continue;
+            }
+            ((InfoItemHolder) holder).updateState(item, recordManager);
+        }
+    }
+
     @Override
     public int getItemCount() {
         int count = infoItemList.size();
