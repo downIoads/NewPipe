@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
@@ -11,6 +13,55 @@ plugins {
     alias(libs.plugins.jetbrains.kotlin.parcelize)
     alias(libs.plugins.sonarqube)
     checkstyle
+}
+
+val buildInvocationToken = providers.exec {
+    commandLine("date", "+%s%N")
+}.standardOutput.asText.map { it.trim() }.get()
+
+val epochTimestampVersionCode = buildInvocationToken.take(10).toInt()
+
+val autoVersionName = run {
+    val versionNameBase = "0.28"
+    val initialPatch = 1
+    val stateFile = rootProject.file(".gradle/auto-version-name.properties")
+    val state = Properties()
+
+    if (stateFile.exists()) {
+        stateFile.inputStream().use(state::load)
+    }
+
+    val isBuildInvocation = gradle.startParameter.taskNames.any { task ->
+        val normalizedTask = task.lowercase()
+        normalizedTask.contains("assemble")
+            || normalizedTask.contains("bundle")
+            || normalizedTask.contains("install")
+            || normalizedTask.contains("compile")
+            || normalizedTask.contains("package")
+    }
+
+    val storedBase = state.getProperty("base")
+    val baseChanged = storedBase != versionNameBase
+    var patch = if (baseChanged) {
+        initialPatch
+    } else {
+        state.getProperty("patch")?.toIntOrNull() ?: initialPatch
+    }
+
+    if (isBuildInvocation) {
+        patch += 1
+    }
+
+    if (baseChanged || isBuildInvocation || !stateFile.exists()) {
+        stateFile.parentFile.mkdirs()
+        state.setProperty("base", versionNameBase)
+        state.setProperty("patch", patch.toString())
+        stateFile.outputStream().use { output ->
+            state.store(output, "Local auto-incremented versionName state")
+        }
+    }
+
+    "$versionNameBase.$patch"
 }
 
 val gitWorkingBranch = providers.exec {
@@ -42,9 +93,9 @@ android {
         minSdk = 21
         targetSdk = 35
 
-        versionCode = System.getProperty("versionCodeOverride")?.toInt() ?: 1006
+        versionCode = System.getProperty("versionCodeOverride")?.toInt() ?: epochTimestampVersionCode
 
-        versionName = "0.28.1"
+        versionName = System.getProperty("versionNameOverride") ?: autoVersionName
         System.getProperty("versionNameSuffix")?.let { versionNameSuffix = it }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
