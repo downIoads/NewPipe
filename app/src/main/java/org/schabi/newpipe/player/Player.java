@@ -72,9 +72,12 @@ import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player.PositionInfo;
+import com.google.android.exoplayer2.analytics.AnalyticsListener;
 import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.Tracks;
 import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector;
+import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
+import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.text.CueGroup;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
@@ -121,6 +124,7 @@ import org.schabi.newpipe.player.ui.PlayerUiList;
 import org.schabi.newpipe.player.ui.PopupPlayerUi;
 import org.schabi.newpipe.player.ui.VideoPlayerUi;
 import org.schabi.newpipe.util.DependentPreferenceHelper;
+import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.ExtractorHelper;
 import org.schabi.newpipe.util.ListHelper;
 import org.schabi.newpipe.util.NavigationHelper;
@@ -129,8 +133,10 @@ import org.schabi.newpipe.util.StreamTypeUtil;
 import org.schabi.newpipe.util.image.PicassoHelper;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
@@ -239,6 +245,9 @@ public final class Player implements PlaybackListener, Listener {
     private String liveEndRetryUrl = null;
     private int liveEndRetryCount = 0;
     private long liveEndRetryElapsed = 0L;
+    private long bufferingStartElapsedRealtimeMs = -1L;
+    private int bufferingStartPositionMs = C.INDEX_UNSET;
+    private boolean mediaTunnelingDisabledByDecoderProbe = false;
 
     /*//////////////////////////////////////////////////////////////////////////
     // UIs, listeners and disposables
@@ -277,6 +286,54 @@ public final class Player implements PlaybackListener, Listener {
     private final SharedPreferences prefs;
     @NonNull
     private final HistoryRecordManager recordManager;
+    @NonNull
+    private final AnalyticsListener lagProbeAnalyticsListener = new AnalyticsListener() {
+        @Override
+        public void onVideoDecoderInitialized(@NonNull final EventTime eventTime,
+                                              @NonNull final String decoderName,
+                                              final long initializedTimestampMs,
+                                              final long initializationDurationMs) {
+            if (DEBUG) {
+                Log.d(TAG, "Lag probe - video decoder initialized: " + decoderName
+                        + " in " + initializationDurationMs + "ms");
+            }
+            maybeDisableTunnelingForDecoder(decoderName);
+        }
+
+        @Override
+        public void onDroppedVideoFrames(@NonNull final EventTime eventTime,
+                                         final int droppedFrames,
+                                         final long elapsedMs) {
+            if (droppedFrames >= 12 || elapsedMs >= 1000L) {
+                Log.w(TAG, "Lag probe - dropped frames=" + droppedFrames
+                        + ", elapsedMs=" + elapsedMs
+                        + ", state=" + currentState
+                        + ", url=" + getVideoUrl());
+            }
+        }
+
+        @Override
+        public void onVideoCodecError(@NonNull final EventTime eventTime,
+                                      @NonNull final Exception videoCodecError) {
+            Log.e(TAG, "Lag probe - video codec error", videoCodecError);
+        }
+
+        @Override
+        public void onVideoFrameProcessingOffset(@NonNull final EventTime eventTime,
+                                                 final long totalProcessingOffsetUs,
+                                                 final int frameCount) {
+            if (frameCount <= 0) {
+                return;
+            }
+            final long averageOffsetUs = totalProcessingOffsetUs / frameCount;
+            if (averageOffsetUs >= 40_000L && frameCount >= 20) {
+                Log.w(TAG, "Lag probe - slow frame processing avgOffsetUs=" + averageOffsetUs
+                        + ", frameCount=" + frameCount
+                        + ", state=" + currentState
+                        + ", url=" + getVideoUrl());
+            }
+        }
+    };
 
     private static final int AUDIO_PREAMP_MIN_DB = -50;
     private static final int AUDIO_PREAMP_MAX_DB = 0;
@@ -331,6 +388,14 @@ public final class Player implements PlaybackListener, Listener {
                 prefs.getBoolean(
                         context.getString(
                                 R.string.use_exoplayer_decoder_fallback_key), false));
+        renderFactory.setMediaCodecSelector(getMediaCodecSelectorForDevice());
+
+        if (DeviceUtils.isTensorG4()) {
+            // Tensor G4 devices may suffer periodic codec callback/reclaim stalls with async
+            // queueing; force synchronous queueing to avoid stale callback spikes.
+            renderFactory.forceDisableMediaCodecAsynchronousQueueing();
+            Log.i(TAG, "Lag probe - applied Tensor G4 codec queueing workaround");
+        }
 
         videoResolver = new VideoPlaybackResolver(context, dataSource, getQualityResolver());
         audioResolver = new AudioPlaybackResolver(context, dataSource);
@@ -657,6 +722,7 @@ public final class Player implements PlaybackListener, Listener {
                 .setUsePlatformDiagnostics(false)
                 .build();
         simpleExoPlayer.addListener(this);
+        simpleExoPlayer.addAnalyticsListener(lagProbeAnalyticsListener);
         simpleExoPlayer.setPlayWhenReady(playOnReady);
         simpleExoPlayer.setSeekParameters(PlayerHelper.getSeekParameters(context));
         simpleExoPlayer.setWakeMode(C.WAKE_MODE_NETWORK);
@@ -670,11 +736,13 @@ public final class Player implements PlaybackListener, Listener {
         UIs.call(PlayerUi::initPlayer);
 
         // Disable media tunneling if requested by the user from ExoPlayer settings
-        if (!PreferenceManager.getDefaultSharedPreferences(context)
-                .getBoolean(context.getString(R.string.disable_media_tunneling_key), false)) {
+        final boolean disableMediaTunneling = PreferenceManager.getDefaultSharedPreferences(context)
+                .getBoolean(context.getString(R.string.disable_media_tunneling_key), false);
+        if (!disableMediaTunneling) {
             trackSelector.setParameters(trackSelector.buildUponParameters()
                     .setTunnelingEnabled(true));
         }
+        Log.i(TAG, "Lag probe - media tunneling enabled=" + !disableMediaTunneling);
     }
     //endregion
 
@@ -692,6 +760,7 @@ public final class Player implements PlaybackListener, Listener {
         UIs.call(PlayerUi::destroyPlayer);
 
         if (!exoPlayerIsNull()) {
+            simpleExoPlayer.removeAnalyticsListener(lagProbeAnalyticsListener);
             simpleExoPlayer.removeListener(this);
             simpleExoPlayer.stop();
             simpleExoPlayer.release();
@@ -1112,14 +1181,17 @@ public final class Player implements PlaybackListener, Listener {
 
         switch (playbackState) {
             case com.google.android.exoplayer2.Player.STATE_IDLE: // 1
+                resetBufferingLagTrace();
                 isPrepared = false;
                 break;
             case com.google.android.exoplayer2.Player.STATE_BUFFERING: // 2
+                markBufferingStart();
                 if (isPrepared) {
                     changeState(STATE_BUFFERING);
                 }
                 break;
             case com.google.android.exoplayer2.Player.STATE_READY: //3
+                maybeLogBufferingEnd();
                 if (!isPrepared) {
                     isPrepared = true;
                     onPrepared(playWhenReady);
@@ -1127,6 +1199,7 @@ public final class Player implements PlaybackListener, Listener {
                 changeState(playWhenReady ? STATE_PLAYING : STATE_PAUSED);
                 break;
             case com.google.android.exoplayer2.Player.STATE_ENDED: // 4
+                resetBufferingLagTrace();
                 if (shouldRetryLiveEnd()) {
                     Log.w(TAG, "Live stream ended unexpectedly; reloading from live edge: "
                             + currentMetadata.getStreamUrl());
@@ -1142,6 +1215,98 @@ public final class Player implements PlaybackListener, Listener {
                 isPrepared = false;
                 break;
         }
+    }
+
+    private void markBufferingStart() {
+        if (bufferingStartElapsedRealtimeMs != -1L || exoPlayerIsNull()) {
+            return;
+        }
+        bufferingStartElapsedRealtimeMs = SystemClock.elapsedRealtime();
+        bufferingStartPositionMs = (int) simpleExoPlayer.getCurrentPosition();
+    }
+
+    private void maybeLogBufferingEnd() {
+        if (bufferingStartElapsedRealtimeMs == -1L || exoPlayerIsNull()) {
+            return;
+        }
+
+        final long bufferingDurationMs =
+                SystemClock.elapsedRealtime() - bufferingStartElapsedRealtimeMs;
+        final int endPositionMs = (int) simpleExoPlayer.getCurrentPosition();
+        final int bufferedPercent = simpleExoPlayer.getBufferedPercentage();
+
+        if (bufferingDurationMs >= 1200L) {
+            Log.w(TAG, "Lag probe - buffering " + bufferingDurationMs
+                    + "ms, pos " + bufferingStartPositionMs + " -> " + endPositionMs
+                    + ", buffered=" + bufferedPercent + "%, state=" + currentState
+                    + ", url=" + getVideoUrl());
+        } else if (DEBUG) {
+            Log.d(TAG, "Lag probe - short buffering " + bufferingDurationMs
+                    + "ms at pos=" + endPositionMs);
+        }
+
+        resetBufferingLagTrace();
+    }
+
+    private void resetBufferingLagTrace() {
+        bufferingStartElapsedRealtimeMs = -1L;
+        bufferingStartPositionMs = C.INDEX_UNSET;
+    }
+
+    @NonNull
+    private MediaCodecSelector getMediaCodecSelectorForDevice() {
+        if (!DeviceUtils.isTensorG4()) {
+            return MediaCodecSelector.DEFAULT;
+        }
+
+        return (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
+            final List<MediaCodecInfo> infos = MediaCodecSelector.DEFAULT.getDecoderInfos(
+                    mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
+            if (!"video/avc".equals(mimeType) || infos.size() <= 1) {
+                return infos;
+            }
+
+            final List<MediaCodecInfo> filtered = infos.stream()
+                    .filter(info -> !info.name.toLowerCase(Locale.US)
+                            .startsWith("c2.exynos.h264.decoder"))
+                    .collect(Collectors.toList());
+            if (filtered.isEmpty() || filtered.size() == infos.size()) {
+                return infos;
+            }
+
+            Log.w(TAG, "Lag probe - Tensor G4 filtered Exynos AVC decoder. "
+                    + "Before=" + infos.stream().map(info -> info.name)
+                    .collect(Collectors.joining(", "))
+                    + " | After=" + filtered.stream().map(info -> info.name)
+                    .collect(Collectors.joining(", ")));
+            return filtered;
+        };
+    }
+
+    private void maybeDisableTunnelingForDecoder(@NonNull final String decoderName) {
+        if (mediaTunnelingDisabledByDecoderProbe) {
+            return;
+        }
+
+        final String normalized = decoderName.toLowerCase(Locale.US);
+        if (!normalized.contains("exynos")) {
+            return;
+        }
+        if (!trackSelector.getParameters().tunnelingEnabled) {
+            return;
+        }
+
+        mediaTunnelingDisabledByDecoderProbe = true;
+        Log.w(TAG, "Lag probe - disabling media tunneling for decoder " + decoderName
+                + " after codec reclaim/freeze symptoms");
+
+        trackSelector.setParameters(trackSelector.buildUponParameters()
+                .setTunnelingEnabled(false));
+
+        prefs.edit()
+                .putBoolean(context.getString(R.string.disable_media_tunneling_key), true)
+                .putInt(context.getString(R.string.disabled_media_tunneling_automatically_key), 1)
+                .apply();
     }
 
     @Override // exoplayer listener

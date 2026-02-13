@@ -29,6 +29,7 @@ import org.schabi.newpipe.App;
 import org.schabi.newpipe.R;
 
 import java.lang.reflect.Method;
+import java.util.Locale;
 
 public final class DeviceUtils {
 
@@ -335,6 +336,15 @@ public final class DeviceUtils {
                 && !PH7M_EU_5596
                 && !TX_50JXW834
                 && !HMB9213NW;
+    }
+
+    public static boolean isTensorG4() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return false;
+        }
+
+        final String socModel = Build.SOC_MODEL;
+        return socModel != null && socModel.toLowerCase(Locale.US).contains("tensor g4");
     }
 
     /**

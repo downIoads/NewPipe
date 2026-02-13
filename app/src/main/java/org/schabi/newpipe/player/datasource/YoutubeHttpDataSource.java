@@ -23,6 +23,7 @@ import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper
 import static java.lang.Math.min;
 
 import android.net.Uri;
+import android.os.SystemClock;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -269,6 +270,9 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
     private static final int HTTP_STATUS_TEMPORARY_REDIRECT = 307;
     private static final int HTTP_STATUS_PERMANENT_REDIRECT = 308;
     private static final long MAX_BYTES_TO_DRAIN = 2048;
+    private static final long LAG_PROBE_SLOW_OPEN_MS = 1200L;
+    private static final long LAG_PROBE_SLOW_READ_MS = 800L;
+    private static final long LAG_PROBE_SLOW_CLOSE_MS = 800L;
 
     private static final String RN_PARAMETER = "&rn=";
     private static final String YOUTUBE_BASE_URL = "https://www.youtube.com";
@@ -375,6 +379,7 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
      */
     @Override
     public long open(@NonNull final DataSpec dataSpecParameter) throws HttpDataSourceException {
+        final long openStartElapsedRealtimeMs = SystemClock.elapsedRealtime();
         this.dataSpec = dataSpecParameter;
         bytesRead = 0;
         bytesToRead = 0;
@@ -388,6 +393,9 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
             responseCode = httpURLConnection.getResponseCode();
             responseMessage = httpURLConnection.getResponseMessage();
         } catch (final IOException e) {
+            final long openDurationMs = SystemClock.elapsedRealtime() - openStartElapsedRealtimeMs;
+            Log.w(TAG, "Lag probe - open failed after " + openDurationMs + "ms, uri="
+                    + toCompactUri(dataSpecParameter.uri), e);
             closeConnectionQuietly();
             throw HttpDataSourceException.createForIOException(e, dataSpec,
                     HttpDataSourceException.TYPE_OPEN);
@@ -493,6 +501,16 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
                     HttpDataSourceException.TYPE_OPEN);
         }
 
+        final long openDurationMs = SystemClock.elapsedRealtime() - openStartElapsedRealtimeMs;
+        if (openDurationMs >= LAG_PROBE_SLOW_OPEN_MS) {
+            Log.w(TAG, "Lag probe - slow open " + openDurationMs + "ms"
+                    + ", response=" + responseCode
+                    + ", position=" + dataSpecParameter.position
+                    + ", length=" + dataSpecParameter.length
+                    + ", bytesToRead=" + bytesToRead
+                    + ", uri=" + toCompactUri(dataSpecParameter.uri));
+        }
+
         return bytesToRead;
     }
 
@@ -509,6 +527,7 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
 
     @Override
     public void close() throws HttpDataSourceException {
+        final long closeStartElapsedRealtimeMs = SystemClock.elapsedRealtime();
         try {
             final InputStream connectionInputStream = this.inputStream;
             if (connectionInputStream != null) {
@@ -531,6 +550,13 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
             if (opened) {
                 opened = false;
                 transferEnded();
+            }
+
+            final long closeDurationMs =
+                    SystemClock.elapsedRealtime() - closeStartElapsedRealtimeMs;
+            if (closeDurationMs >= LAG_PROBE_SLOW_CLOSE_MS) {
+                Log.w(TAG, "Lag probe - slow close " + closeDurationMs + "ms, uri="
+                        + toCompactUri(dataSpec != null ? dataSpec.uri : null));
             }
         }
     }
@@ -841,14 +867,43 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
             readLength = (int) min(readLength, bytesRemaining);
         }
 
+        final long readStartElapsedRealtimeMs = SystemClock.elapsedRealtime();
         final int read = castNonNull(inputStream).read(buffer, offset, readLength);
+        final long readDurationMs = SystemClock.elapsedRealtime() - readStartElapsedRealtimeMs;
         if (read == -1) {
+            if (readDurationMs >= LAG_PROBE_SLOW_READ_MS) {
+                Log.w(TAG, "Lag probe - slow read to EOF " + readDurationMs + "ms"
+                        + ", requested=" + readLength
+                        + ", bytesRead=" + bytesRead + "/" + bytesToRead
+                        + ", uri=" + toCompactUri(dataSpec != null ? dataSpec.uri : null));
+            }
             return C.RESULT_END_OF_INPUT;
         }
 
         bytesRead += read;
         bytesTransferred(read);
+        if (readDurationMs >= LAG_PROBE_SLOW_READ_MS) {
+            Log.w(TAG, "Lag probe - slow read " + readDurationMs + "ms"
+                    + ", requested=" + readLength
+                    + ", received=" + read
+                    + ", bytesRead=" + bytesRead + "/" + bytesToRead
+                    + ", uri=" + toCompactUri(dataSpec != null ? dataSpec.uri : null));
+        }
         return read;
+    }
+
+    @NonNull
+    private static String toCompactUri(@Nullable final Uri uri) {
+        if (uri == null) {
+            return "<null>";
+        }
+
+        final String host = uri.getHost();
+        final String path = uri.getPath();
+        if (host == null && path == null) {
+            return uri.toString();
+        }
+        return (host == null ? "" : host) + (path == null ? "" : path);
     }
 
     /**
@@ -1014,4 +1069,3 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
         }
     }
 }
-
