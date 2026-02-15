@@ -11,6 +11,7 @@ import org.schabi.newpipe.database.stream.model.StreamEntity.Companion.STREAM_SE
 import org.schabi.newpipe.database.stream.model.StreamEntity.Companion.STREAM_TABLE
 import org.schabi.newpipe.database.stream.model.StreamEntity.Companion.STREAM_URL
 import org.schabi.newpipe.extractor.localization.DateWrapper
+import org.schabi.newpipe.extractor.stream.ContentAvailability
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.StreamType
@@ -62,7 +63,10 @@ data class StreamEntity(
     var uploadDate: OffsetDateTime? = null,
 
     @ColumnInfo(name = STREAM_IS_UPLOAD_DATE_APPROXIMATION)
-    var isUploadDateApproximation: Boolean? = null
+    var isUploadDateApproximation: Boolean? = null,
+
+    @ColumnInfo(name = STREAM_CONTENT_AVAILABILITY)
+    var contentAvailability: ContentAvailability = ContentAvailability.AVAILABLE
 ) : Serializable {
     @Ignore
     constructor(item: StreamInfoItem) : this(
@@ -71,7 +75,8 @@ data class StreamEntity(
         uploaderUrl = item.uploaderUrl,
         thumbnailUrl = ImageStrategy.imageListToDbUrl(item.thumbnails), viewCount = item.viewCount,
         textualUploadDate = item.textualUploadDate, uploadDate = item.uploadDate?.offsetDateTime(),
-        isUploadDateApproximation = item.uploadDate?.isApproximation
+        isUploadDateApproximation = item.uploadDate?.isApproximation,
+        contentAvailability = item.contentAvailability
     )
 
     @Ignore
@@ -81,7 +86,8 @@ data class StreamEntity(
         uploaderUrl = info.uploaderUrl,
         thumbnailUrl = ImageStrategy.imageListToDbUrl(info.thumbnails), viewCount = info.viewCount,
         textualUploadDate = info.textualUploadDate, uploadDate = info.uploadDate?.offsetDateTime(),
-        isUploadDateApproximation = info.uploadDate?.isApproximation
+        isUploadDateApproximation = info.uploadDate?.isApproximation,
+        contentAvailability = info.contentAvailability
     )
 
     @Ignore
@@ -108,6 +114,7 @@ data class StreamEntity(
         item.uploadDate = uploadDate?.let {
             DateWrapper(it, isUploadDateApproximation ?: false)
         }
+        item.contentAvailability = contentAvailability
 
         return item
     }
@@ -128,5 +135,6 @@ data class StreamEntity(
         const val STREAM_TEXTUAL_UPLOAD_DATE = "textual_upload_date"
         const val STREAM_UPLOAD_DATE = "upload_date"
         const val STREAM_IS_UPLOAD_DATE_APPROXIMATION = "is_upload_date_approximation"
+        const val STREAM_CONTENT_AVAILABILITY = "content_availability"
     }
 }

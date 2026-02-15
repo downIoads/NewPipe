@@ -1,16 +1,20 @@
 package org.schabi.newpipe.info_list.holder;
 
 import android.text.TextUtils;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
 import org.schabi.newpipe.R;
+import org.schabi.newpipe.extractor.ServiceList;
+import org.schabi.newpipe.extractor.stream.ContentAvailability;
 import org.schabi.newpipe.extractor.InfoItem;
 import org.schabi.newpipe.extractor.stream.StreamInfoItem;
 import org.schabi.newpipe.extractor.stream.StreamType;
 import org.schabi.newpipe.info_list.InfoItemBuilder;
 import org.schabi.newpipe.local.history.HistoryRecordManager;
 import org.schabi.newpipe.util.Localization;
+import org.schabi.newpipe.util.StreamTypeUtil;
 
 /*
  * Created by Christian Schabesberger on 01.08.16.
@@ -38,6 +42,7 @@ import org.schabi.newpipe.util.Localization;
 
 public class StreamInfoItemHolder extends StreamMiniInfoItemHolder {
     public final TextView itemAdditionalDetails;
+    public final TextView itemMembersOnlyDetails;
 
     public StreamInfoItemHolder(final InfoItemBuilder infoItemBuilder, final ViewGroup parent) {
         this(infoItemBuilder, R.layout.list_stream_item, parent);
@@ -47,6 +52,7 @@ public class StreamInfoItemHolder extends StreamMiniInfoItemHolder {
                                 final ViewGroup parent) {
         super(infoItemBuilder, layoutId, parent);
         itemAdditionalDetails = itemView.findViewById(R.id.itemAdditionalDetails);
+        itemMembersOnlyDetails = itemView.findViewById(R.id.itemMembersOnlyDetails);
     }
 
     @Override
@@ -60,6 +66,7 @@ public class StreamInfoItemHolder extends StreamMiniInfoItemHolder {
         final StreamInfoItem item = (StreamInfoItem) infoItem;
 
         itemAdditionalDetails.setText(getStreamInfoDetailLine(item));
+        itemMembersOnlyDetails.setVisibility(isMembersOnly(item) ? View.VISIBLE : View.GONE);
     }
 
     private String getStreamInfoDetailLine(final StreamInfoItem infoItem) {
@@ -89,5 +96,17 @@ public class StreamInfoItemHolder extends StreamMiniInfoItemHolder {
         }
 
         return viewsAndDate;
+    }
+
+    private boolean isMembersOnly(final StreamInfoItem infoItem) {
+        if (infoItem.getContentAvailability() == ContentAvailability.MEMBERSHIP) {
+            return true;
+        }
+
+        // Fallback for YouTube renderers where membership flag is unavailable but view count is.
+        return infoItem.getServiceId() == ServiceList.YouTube.getServiceId()
+                && infoItem.getViewCount() < 0
+                && !StreamTypeUtil.isLiveStream(infoItem.getStreamType())
+                && infoItem.getContentAvailability() != ContentAvailability.UPCOMING;
     }
 }

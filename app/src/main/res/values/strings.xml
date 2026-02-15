@@ -172,6 +172,7 @@
     <string name="restricted_video_no_stream">This video is age-restricted.
 \nDue to new YouTube policies with age-restricted videos, NewPipe cannot access any of its video streams and thus is unable to play it.</string>
     <string name="duration_live">Live</string>
+    <string name="members_only">MEMBERS ONLY</string>
     <string name="downloads">Downloads</string>
     <string name="downloads_title">Downloads</string>
     <string name="loading_metadata_title">Loading Metadata…</string>

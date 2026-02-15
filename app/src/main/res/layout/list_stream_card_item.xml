@@ -86,6 +86,24 @@
         app:layout_constraintTop_toTopOf="@id/itemUploaderView"
         tools:text="2 years ago • 10M views" />
 
+    <org.schabi.newpipe.views.NewPipeTextView
+        android:id="@+id/itemMembersOnlyDetails"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/spacing_micro"
+        android:ellipsize="end"
+        android:lines="1"
+        android:includeFontPadding="false"
+        android:text="@string/members_only"
+        android:textAppearance="?android:textAppearanceSmall"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="@id/itemVideoTitleView"
+        app:layout_constraintStart_toStartOf="@id/itemVideoTitleView"
+        app:layout_constraintTop_toBottomOf="@id/itemUploaderView"
+        tools:text="MEMBERS ONLY"
+        tools:visibility="visible" />
+
     <org.schabi.newpipe.views.AnimatedProgressBar
         android:id="@+id/itemProgressView"
         style="@style/Widget.AppCompat.ProgressBar.Horizontal"

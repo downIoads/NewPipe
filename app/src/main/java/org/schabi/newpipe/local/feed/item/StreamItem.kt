@@ -11,6 +11,9 @@ import org.schabi.newpipe.R
 import org.schabi.newpipe.database.stream.StreamWithState
 import org.schabi.newpipe.database.stream.model.StreamEntity
 import org.schabi.newpipe.databinding.ListStreamItemBinding
+import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.stream.ContentAvailability.MEMBERSHIP
+import org.schabi.newpipe.extractor.stream.ContentAvailability.UPCOMING
 import org.schabi.newpipe.extractor.stream.StreamType.AUDIO_LIVE_STREAM
 import org.schabi.newpipe.extractor.stream.StreamType.AUDIO_STREAM
 import org.schabi.newpipe.extractor.stream.StreamType.LIVE_STREAM
@@ -56,6 +59,7 @@ data class StreamItem(
             if (itemVersion != ItemVersion.MINI) {
                 viewBinding.itemAdditionalDetails.text =
                     getStreamInfoDetailLine(viewBinding.itemAdditionalDetails.context)
+                viewBinding.itemMembersOnlyDetails.visibility = if (isMembersOnly()) View.VISIBLE else View.GONE
             }
             return
         }
@@ -104,6 +108,7 @@ data class StreamItem(
         if (itemVersion != ItemVersion.MINI) {
             viewBinding.itemAdditionalDetails.text =
                 getStreamInfoDetailLine(viewBinding.itemAdditionalDetails.context)
+            viewBinding.itemMembersOnlyDetails.visibility = if (isMembersOnly()) View.VISIBLE else View.GONE
         }
 
         execBindEnd?.accept(viewBinding)
@@ -142,6 +147,19 @@ data class StreamItem(
         } else {
             stream.textualUploadDate
         }
+    }
+
+    private fun isMembersOnly(): Boolean {
+        if (stream.contentAvailability == MEMBERSHIP) {
+            return true
+        }
+
+        val viewCount = stream.viewCount
+        // Fallback for YouTube entries where membership flag is not provided by the renderer.
+        return stream.serviceId == ServiceList.YouTube.serviceId &&
+            (viewCount == null || viewCount < 0) &&
+            !StreamTypeUtil.isLiveStream(stream.streamType) &&
+            stream.contentAvailability != UPCOMING
     }
 
     override fun getSpanSize(spanCount: Int, position: Int): Int {

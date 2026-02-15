@@ -16,6 +16,7 @@ import org.junit.runner.RunWith
 import org.schabi.newpipe.database.playlist.model.PlaylistEntity
 import org.schabi.newpipe.database.playlist.model.PlaylistRemoteEntity
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.stream.ContentAvailability
 import org.schabi.newpipe.extractor.stream.StreamType
 
 @RunWith(AndroidJUnit4::class)
@@ -128,6 +129,13 @@ class DatabaseMigrationTest {
             Migrations.MIGRATION_8_9
         )
 
+        testHelper.runMigrationsAndValidate(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_10,
+            true,
+            Migrations.MIGRATION_9_10
+        )
+
         val migratedDatabaseV3 = getMigratedDatabase()
         val listFromDB = migratedDatabaseV3.streamDAO().getAll().blockingFirst()
 
@@ -146,6 +154,7 @@ class DatabaseMigrationTest {
         assertNull(streamFromMigratedDatabase.textualUploadDate)
         assertNull(streamFromMigratedDatabase.uploadDate)
         assertNull(streamFromMigratedDatabase.isUploadDateApproximation)
+        assertEquals(ContentAvailability.AVAILABLE, streamFromMigratedDatabase.contentAvailability)
 
         val secondStreamFromMigratedDatabase = listFromDB[1]
         assertEquals(DEFAULT_SECOND_SERVICE_ID, secondStreamFromMigratedDatabase.serviceId)
@@ -160,6 +169,7 @@ class DatabaseMigrationTest {
         assertNull(secondStreamFromMigratedDatabase.textualUploadDate)
         assertNull(secondStreamFromMigratedDatabase.uploadDate)
         assertNull(secondStreamFromMigratedDatabase.isUploadDateApproximation)
+        assertEquals(ContentAvailability.AVAILABLE, secondStreamFromMigratedDatabase.contentAvailability)
     }
 
     @Test
@@ -224,6 +234,13 @@ class DatabaseMigrationTest {
             Migrations.MIGRATION_8_9
         )
 
+        testHelper.runMigrationsAndValidate(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_10,
+            true,
+            Migrations.MIGRATION_9_10
+        )
+
         val migratedDatabaseV8 = getMigratedDatabase()
         val listFromDB = migratedDatabaseV8.searchHistoryDAO().getAll().blockingFirst()
 
@@ -234,7 +251,7 @@ class DatabaseMigrationTest {
     }
 
     @Test
-    fun migrateDatabaseFrom8to9() {
+    fun migrateDatabaseFrom8to10() {
         val databaseInV8 = testHelper.createDatabase(AppDatabase.DATABASE_NAME, Migrations.DB_VER_8)
 
         val localUid1: Long
@@ -294,6 +311,13 @@ class DatabaseMigrationTest {
             Migrations.DB_VER_9,
             true,
             Migrations.MIGRATION_8_9
+        )
+
+        testHelper.runMigrationsAndValidate(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_10,
+            true,
+            Migrations.MIGRATION_9_10
         )
 
         val migratedDatabaseV9 = getMigratedDatabase()

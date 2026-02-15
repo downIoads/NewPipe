@@ -4,6 +4,7 @@ import androidx.room.TypeConverter
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import org.schabi.newpipe.extractor.stream.ContentAvailability
 import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.local.subscription.FeedGroupIcon
 
@@ -38,6 +39,16 @@ class Converters {
     @TypeConverter
     fun stringOf(streamType: StreamType): String {
         return streamType.name
+    }
+
+    @TypeConverter
+    fun contentAvailabilityOf(value: String): ContentAvailability {
+        return ContentAvailability.valueOf(value)
+    }
+
+    @TypeConverter
+    fun stringOf(contentAvailability: ContentAvailability): String {
+        return contentAvailability.name
     }
 
     @TypeConverter
