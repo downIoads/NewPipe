@@ -24,8 +24,8 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -142,6 +142,10 @@ public final class DownloaderImpl extends Downloader {
         byte[] dataToSend = request.dataToSend();
 
         if (dataToSend != null && url.contains(YOUTUBE_PLAYER_ENDPOINT)) {
+            if (MainActivity.DEBUG) {
+                Log.d(DownloaderImpl.class.getSimpleName(),
+                        "Intercepting player endpoint: " + url);
+            }
             dataToSend = maybeInjectPoTokenIntoPlayerRequest(url, dataToSend);
         }
 
@@ -201,9 +205,6 @@ public final class DownloaderImpl extends Downloader {
         try {
             final String body = new String(dataToSend, StandardCharsets.UTF_8);
             final JsonObject json = JsonParser.object().from(body);
-            if (json.has("serviceIntegrityDimensions")) {
-                return dataToSend;
-            }
 
             final JsonObject context = json.getObject("context", null);
             final JsonObject client = context != null
@@ -212,6 +213,23 @@ public final class DownloaderImpl extends Downloader {
             final String clientName = client != null
                     ? client.getString("clientName", null)
                     : null;
+            if (MainActivity.DEBUG) {
+                Log.d(DownloaderImpl.class.getSimpleName(),
+                        "Player request clientName=" + clientName + " url=" + url);
+            }
+
+            // ANDROID/ANDROID_VR/IOS player requests: let the extractor's poToken flow through.
+            // ANDROID_VR does not need poTokens at all.
+            if ("ANDROID".equalsIgnoreCase(clientName)
+                    || "ANDROID_VR".equalsIgnoreCase(clientName)
+                    || "IOS".equalsIgnoreCase(clientName)) {
+                return dataToSend;
+            }
+
+            if (json.has("serviceIntegrityDimensions")) {
+                return dataToSend;
+            }
+
             if (clientName == null
                     || (!"WEB".equalsIgnoreCase(clientName)
                     && !"WEB_EMBEDDED_PLAYER".equalsIgnoreCase(clientName))) {
@@ -262,15 +280,23 @@ public final class DownloaderImpl extends Downloader {
             final String url,
             final String responseBody
     ) {
-        if (!url.contains("playabilityStatus")
-                && !url.contains("$fields=microformat,playabilityStatus")) {
-            return responseBody;
-        }
-
         try {
             final JsonObject json = JsonParser.object().from(responseBody);
+
+            if (MainActivity.DEBUG) {
+                final JsonObject vd = json.getObject("videoDetails", null);
+                Log.d(DownloaderImpl.class.getSimpleName(),
+                        "Player response videoDetails.videoId="
+                        + (vd != null ? vd.getString("videoId", "(none)") : "(no videoDetails)")
+                        + " url=" + url);
+            }
+
             final JsonObject playabilityStatus = json.getObject("playabilityStatus", null);
             if (playabilityStatus == null) {
+                if (MainActivity.DEBUG) {
+                    Log.d(DownloaderImpl.class.getSimpleName(),
+                            "No playabilityStatus in player response: " + url);
+                }
                 return responseBody;
             }
 
@@ -291,10 +317,11 @@ public final class DownloaderImpl extends Downloader {
                     || ("UNPLAYABLE".equalsIgnoreCase(status)
                     && reasonLower.contains("video unavailable"));
 
-            if (MainActivity.DEBUG && (status != null && !"OK".equalsIgnoreCase(status))) {
+            if (MainActivity.DEBUG) {
                 Log.d(
                         DownloaderImpl.class.getSimpleName(),
                         "playabilityStatus status=" + status + " reason=" + reason
+                                + " shouldPatch=" + shouldPatch + " url=" + url
                 );
             }
 

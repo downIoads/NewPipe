@@ -94,11 +94,20 @@ object PoTokenProviderImpl : PoTokenProvider {
                 )
             }
 
-        val playerPot = try {
+        val playerPot: String
+        val gvsPot: String
+        try {
             // Not using synchronized here, since poTokenGenerator would be able to generate
             // multiple poTokens in parallel if needed. The only important thing is for exactly one
             // visitorData/streaming poToken to be generated before anything else.
-            poTokenGenerator.generatePoToken(videoId).blockingGet()
+
+            // Player token: video-ID-bound, sent in serviceIntegrityDimensions.poToken
+            playerPot = poTokenGenerator.generatePoToken(videoId).blockingGet()
+
+            // GVS token: also video-ID-bound (YouTube experiment html5_generate_content_po_token).
+            // YouTube has shifted from visitorData-bound to video-ID-bound GVS tokens.
+            // This token is appended to streaming URLs as &pot=
+            gvsPot = poTokenGenerator.generatePoToken(videoId).blockingGet()
         } catch (throwable: Throwable) {
             if (hasBeenRecreated) {
                 // the poTokenGenerator has just been recreated (and possibly this is already the
@@ -117,16 +126,32 @@ object PoTokenProviderImpl : PoTokenProvider {
             Log.d(
                 TAG,
                 "poToken for $videoId: playerPot=$playerPot, " +
-                    "streamingPot=$streamingPot, visitor_data=$visitorData"
+                    "gvsPot=$gvsPot, visitor_data=$visitorData"
             )
         }
 
-        return PoTokenResult(visitorData, playerPot, streamingPot)
+        return PoTokenResult(visitorData, playerPot, gvsPot)
+    }
+
+    /**
+     * Returns the cached streaming poToken without regenerating it.
+     * This is the same streaming pot that was embedded in the stream URLs by the extractor.
+     * Returns null if no pot has been generated yet (e.g. WebView not supported).
+     */
+    fun getCachedStreamingPot(): String? {
+        synchronized(WebPoTokenGenLock) {
+            return webPoTokenStreamingPot
+        }
     }
 
     override fun getWebEmbedClientPoToken(videoId: String): PoTokenResult? = null
 
-    override fun getAndroidClientPoToken(videoId: String): PoTokenResult? = null
+    override fun getAndroidClientPoToken(videoId: String): PoTokenResult? {
+        // BotGuard-generated poTokens are bound to visitorData/videoId, not client type.
+        // The same WEB BotGuard token works for ANDROID player requests.
+        // Per yt-dlp: ANDROID GVS pot is not required if a player token is provided.
+        return getWebClientPoToken(videoId)
+    }
 
     override fun getIosClientPoToken(videoId: String): PoTokenResult? = null
 }

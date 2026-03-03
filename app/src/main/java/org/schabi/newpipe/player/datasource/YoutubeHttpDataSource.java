@@ -13,11 +13,11 @@ import static com.google.android.exoplayer2.upstream.HttpUtil.buildRangeRequestH
 import static com.google.android.exoplayer2.util.Assertions.checkNotNull;
 import static com.google.android.exoplayer2.util.Util.castNonNull;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getAndroidUserAgent;
+import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getAndroidVrUserAgent;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getIosUserAgent;
-import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getTvHtml5UserAgent;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isAndroidStreamingUrl;
+import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isAndroidVrStreamingUrl;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isIosStreamingUrl;
-import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isTvHtml5StreamingUrl;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isWebStreamingUrl;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isWebEmbeddedPlayerStreamingUrl;
 import static java.lang.Math.min;
@@ -48,6 +48,7 @@ import com.google.common.collect.Sets;
 import com.google.common.net.HttpHeaders;
 
 import org.schabi.newpipe.DownloaderImpl;
+import org.schabi.newpipe.util.potoken.PoTokenProviderImpl;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -402,6 +403,9 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
         }
 
         // Check for a valid response code.
+        if (responseCode == 403) {
+            Log.e(TAG, "403 on URI: " + dataSpecParameter.uri);
+        }
         if (responseCode < 200 || responseCode > 299) {
             final Map<String, List<String>> headers = httpURLConnection.getHeaderFields();
             if (responseCode == 416) {
@@ -665,6 +669,28 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
             }
         }
 
+        // Append the streaming poToken to videoplayback URLs if not already present.
+        // YouTube's CDN requires this token for WEB and ANDROID client streams; without it
+        // requests may be rejected with 403, especially when seeking to uncached positions.
+        if (isVideoPlaybackUrl) {
+            final boolean isWeb = isWebStreamingUrl(requestUrl);
+            final boolean isWebEmbed = isWebEmbeddedPlayerStreamingUrl(requestUrl);
+            final boolean isAndroid = isAndroidStreamingUrl(requestUrl);
+            final boolean hasPot = requestUrl.contains("&pot=") || requestUrl.contains("?pot=");
+            Log.d(TAG, "makeConnection: isWeb=" + isWeb + " isWebEmbed=" + isWebEmbed
+                    + " isAndroid=" + isAndroid + " hasPot=" + hasPot
+                    + " url=" + requestUrl.substring(0, Math.min(requestUrl.length(), 200)));
+            if ((isWeb || isWebEmbed || isAndroid) && !hasPot) {
+                final String streamingPot = PoTokenProviderImpl.INSTANCE.getCachedStreamingPot();
+                Log.d(TAG, "makeConnection: getCachedStreamingPot() returned "
+                        + (streamingPot == null ? "null" : "pot[" + streamingPot.length() + "]"));
+                if (streamingPot != null) {
+                    requestUrl += "&pot=" + Uri.encode(streamingPot);
+                    Log.d(TAG, "makeConnection: appended pot to URL");
+                }
+            }
+        }
+
         final HttpURLConnection httpURLConnection = openConnection(new URL(requestUrl));
         httpURLConnection.setConnectTimeout(connectTimeoutMillis);
         httpURLConnection.setReadTimeout(readTimeoutMillis);
@@ -687,10 +713,7 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
             }
         }
 
-        final boolean isTvHtml5StreamingUrl = isTvHtml5StreamingUrl(requestUrl);
-
         if (isWebStreamingUrl(requestUrl)
-                || isTvHtml5StreamingUrl
                 || isWebEmbeddedPlayerStreamingUrl(requestUrl)) {
             httpURLConnection.setRequestProperty(HttpHeaders.ORIGIN, YOUTUBE_BASE_URL);
             httpURLConnection.setRequestProperty(HttpHeaders.REFERER, YOUTUBE_BASE_URL);
@@ -701,19 +724,18 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
 
         httpURLConnection.setRequestProperty(HttpHeaders.TE, "trailers");
 
-        final boolean isAndroidStreamingUrl = isAndroidStreamingUrl(requestUrl);
-        final boolean isIosStreamingUrl = isIosStreamingUrl(requestUrl);
-        if (isAndroidStreamingUrl) {
-            // Improvement which may be done: find the content country used to request YouTube
-            // contents to add it in the user agent instead of using the default
+        final boolean isAndroidVr = isAndroidVrStreamingUrl(requestUrl);
+        final boolean isAndroidUrl = isAndroidStreamingUrl(requestUrl);
+        final boolean isIosUrl = isIosStreamingUrl(requestUrl);
+        if (isAndroidVr) {
+            httpURLConnection.setRequestProperty(HttpHeaders.USER_AGENT,
+                    getAndroidVrUserAgent(null));
+        } else if (isAndroidUrl) {
             httpURLConnection.setRequestProperty(HttpHeaders.USER_AGENT,
                     getAndroidUserAgent(null));
-        } else if (isIosStreamingUrl) {
+        } else if (isIosUrl) {
             httpURLConnection.setRequestProperty(HttpHeaders.USER_AGENT,
                     getIosUserAgent(null));
-        } else if (isTvHtml5StreamingUrl) {
-            httpURLConnection.setRequestProperty(HttpHeaders.USER_AGENT,
-                    getTvHtml5UserAgent());
         } else {
             // non-mobile user agent
             httpURLConnection.setRequestProperty(HttpHeaders.USER_AGENT, DownloaderImpl.USER_AGENT);
@@ -722,15 +744,22 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
         httpURLConnection.setRequestProperty(HttpHeaders.ACCEPT_ENCODING,
                 allowGzip ? "gzip" : "identity");
         httpURLConnection.setInstanceFollowRedirects(followRedirects);
-        // Most clients use POST requests to fetch contents
-        httpURLConnection.setRequestMethod("POST");
-        httpURLConnection.setDoOutput(true);
-        httpURLConnection.setFixedLengthStreamingMode(POST_BODY.length);
-        httpURLConnection.connect();
 
-        final OutputStream os = httpURLConnection.getOutputStream();
-        os.write(POST_BODY);
-        os.close();
+        if (isAndroidVr) {
+            // ANDROID_VR client uses GET requests for streaming (matching yt-dlp behavior)
+            httpURLConnection.setRequestMethod("GET");
+            httpURLConnection.connect();
+        } else {
+            // Other clients use POST requests to fetch contents
+            httpURLConnection.setRequestMethod("POST");
+            httpURLConnection.setDoOutput(true);
+            httpURLConnection.setFixedLengthStreamingMode(POST_BODY.length);
+            httpURLConnection.connect();
+
+            final OutputStream os = httpURLConnection.getOutputStream();
+            os.write(POST_BODY);
+            os.close();
+        }
 
         return httpURLConnection;
     }
