@@ -115,6 +115,13 @@ class ErrorUtil {
          */
         @JvmStatic
         fun createNotification(context: Context, errorInfo: ErrorInfo) {
+            // Suppress non-actionable transient errors (network errors, parsing errors)
+            if (errorInfo.messageStringId == R.string.network_error ||
+                errorInfo.messageStringId == R.string.parsing_error
+            ) {
+                return
+            }
+
             val notificationBuilder: NotificationCompat.Builder =
                 NotificationCompat.Builder(
                     context,
@@ -152,6 +159,13 @@ class ErrorUtil {
         }
 
         private fun showSnackbar(context: Context, rootView: View?, errorInfo: ErrorInfo) {
+            // Suppress non-actionable transient errors (network errors, parsing errors)
+            if (errorInfo.messageStringId == R.string.network_error ||
+                errorInfo.messageStringId == R.string.parsing_error
+            ) {
+                return
+            }
+
             if (rootView == null) {
                 // fallback to showing a notification if no root view is available
                 createNotification(context, errorInfo)

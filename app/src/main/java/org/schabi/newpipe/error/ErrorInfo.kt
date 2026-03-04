@@ -135,6 +135,10 @@ class ErrorInfo private constructor(
         return getServiceName(serviceId)
     }
 
+    @get:StringRes
+    val messageStringId: Int
+        get() = message.stringRes
+
     fun getMessage(context: Context): String {
         return message.getString(context)
     }
@@ -143,7 +147,7 @@ class ErrorInfo private constructor(
         @Parcelize
         class ErrorMessage(
             @StringRes
-            private val stringRes: Int,
+            val stringRes: Int,
             private vararg val formatArgs: String
         ) : Parcelable {
             fun getString(context: Context): String {
