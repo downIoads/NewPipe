@@ -215,58 +215,7 @@ class FeedFragment : BaseStateFragment<FeedState>() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == R.id.menu_item_feed_help) {
-            val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
-
-            val usingDedicatedMethod = sharedPreferences
-                .getBoolean(getString(R.string.feed_use_dedicated_fetch_method_key), false)
-            val enableDisableButtonText = when {
-                usingDedicatedMethod -> R.string.feed_use_dedicated_fetch_method_disable_button
-                else -> R.string.feed_use_dedicated_fetch_method_enable_button
-            }
-
-            AlertDialog.Builder(requireContext())
-                .setMessage(R.string.feed_use_dedicated_fetch_method_help_text)
-                .setNeutralButton(enableDisableButtonText) { _, _ ->
-                    sharedPreferences.edit {
-                        putBoolean(getString(R.string.feed_use_dedicated_fetch_method_key), !usingDedicatedMethod)
-                    }
-                }
-                .setPositiveButton(resources.getString(R.string.ok), null)
-                .show()
-            return true
-        } else if (item.itemId == R.id.menu_item_feed_toggle_played_items) {
-            showStreamVisibilityDialog()
-        }
-
         return super.onOptionsItemSelected(item)
-    }
-
-    private fun showStreamVisibilityDialog() {
-        val dialogItems = arrayOf(
-            getString(R.string.feed_show_watched),
-            getString(R.string.feed_show_partially_watched),
-            getString(R.string.feed_show_upcoming)
-        )
-
-        val checkedDialogItems = booleanArrayOf(
-            viewModel.getShowPlayedItemsFromPreferences(),
-            viewModel.getShowPartiallyPlayedItemsFromPreferences(),
-            viewModel.getShowFutureItemsFromPreferences()
-        )
-
-        AlertDialog.Builder(context!!)
-            .setTitle(R.string.feed_hide_streams_title)
-            .setMultiChoiceItems(dialogItems, checkedDialogItems) { _, which, isChecked ->
-                checkedDialogItems[which] = isChecked
-            }
-            .setPositiveButton(R.string.ok) { _, _ ->
-                viewModel.setSaveShowPlayedItems(checkedDialogItems[0])
-                viewModel.setSaveShowPartiallyPlayedItems(checkedDialogItems[1])
-                viewModel.setSaveShowFutureItems(checkedDialogItems[2])
-            }
-            .setNegativeButton(R.string.cancel, null)
-            .show()
     }
 
     override fun onDestroyOptionsMenu() {
