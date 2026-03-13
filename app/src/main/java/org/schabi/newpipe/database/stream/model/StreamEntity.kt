@@ -71,7 +71,8 @@ data class StreamEntity(
     @Ignore
     constructor(item: StreamInfoItem) : this(
         serviceId = item.serviceId, url = item.url, title = item.name,
-        streamType = item.streamType, duration = item.duration, uploader = item.uploaderName,
+        streamType = item.streamType, duration = item.duration,
+        uploader = item.uploaderName ?: "",
         uploaderUrl = item.uploaderUrl,
         thumbnailUrl = ImageStrategy.imageListToDbUrl(item.thumbnails), viewCount = item.viewCount,
         textualUploadDate = item.textualUploadDate, uploadDate = item.uploadDate?.offsetDateTime(),
@@ -82,7 +83,8 @@ data class StreamEntity(
     @Ignore
     constructor(info: StreamInfo) : this(
         serviceId = info.serviceId, url = info.url, title = info.name,
-        streamType = info.streamType, duration = info.duration, uploader = info.uploaderName,
+        streamType = info.streamType, duration = info.duration,
+        uploader = info.uploaderName ?: "",
         uploaderUrl = info.uploaderUrl,
         thumbnailUrl = ImageStrategy.imageListToDbUrl(info.thumbnails), viewCount = info.viewCount,
         textualUploadDate = info.textualUploadDate, uploadDate = info.uploadDate?.offsetDateTime(),
