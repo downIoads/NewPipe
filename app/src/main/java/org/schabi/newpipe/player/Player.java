@@ -1793,8 +1793,14 @@ public final class Player implements PlaybackListener, Listener {
                 // switching to the buffering state
                 onBuffering();
                 break;
-            case ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE:
             case ERROR_CODE_IO_BAD_HTTP_STATUS:
+                // HTTP 403 etc. often means the stream URL expired;
+                // reload to get fresh URLs instead of skipping
+                isCatchableException = true;
+                setRecovery();
+                reloadPlayQueueManager();
+                break;
+            case ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE:
             case ERROR_CODE_IO_FILE_NOT_FOUND:
             case ERROR_CODE_IO_NO_PERMISSION:
             case ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED:
