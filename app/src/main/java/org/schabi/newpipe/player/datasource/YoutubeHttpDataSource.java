@@ -48,6 +48,7 @@ import com.google.common.collect.Sets;
 import com.google.common.net.HttpHeaders;
 
 import org.schabi.newpipe.DownloaderImpl;
+import org.schabi.newpipe.util.DebugFileLog;
 import org.schabi.newpipe.util.potoken.PoTokenProviderImpl;
 
 import java.io.IOException;
@@ -403,9 +404,6 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
         }
 
         // Check for a valid response code.
-        if (responseCode == 403) {
-            Log.e(TAG, "403 on URI: " + dataSpecParameter.uri);
-        }
         if (responseCode < 200 || responseCode > 299) {
             final Map<String, List<String>> headers = httpURLConnection.getHeaderFields();
             if (responseCode == 416) {
@@ -429,6 +427,9 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
             } catch (final IOException e) {
                 errorResponseBody = Util.EMPTY_BYTE_ARRAY;
             }
+
+            logHttpError(responseCode, responseMessage, dataSpecParameter, headers,
+                    errorResponseBody, openStartElapsedRealtimeMs);
 
             closeConnectionQuietly();
             final IOException cause = responseCode == 416 ? new DataSourceException(
@@ -919,6 +920,34 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
                     + ", uri=" + toCompactUri(dataSpec != null ? dataSpec.uri : null));
         }
         return read;
+    }
+
+    private static void logHttpError(final int code,
+                                      final String message,
+                                      final DataSpec spec,
+                                      final Map<String, List<String>> headers,
+                                      final byte[] errorBody,
+                                      final long openStartElapsedRealtimeMs) {
+        final long openDurationMs = SystemClock.elapsedRealtime() - openStartElapsedRealtimeMs;
+        final String errorBodyStr = errorBody.length > 0
+                ? new String(errorBody, java.nio.charset.StandardCharsets.UTF_8) : "<empty>";
+        final String truncatedBody = errorBodyStr.length() > 500
+                ? errorBodyStr.substring(0, 500) + "..." : errorBodyStr;
+        final StringBuilder headerDump = new StringBuilder();
+        for (final Map.Entry<String, List<String>> entry : headers.entrySet()) {
+            headerDump.append("\n    ").append(entry.getKey())
+                    .append(": ").append(entry.getValue());
+        }
+        DebugFileLog.log(TAG, "HTTP error"
+                + " | code=" + code
+                + " | msg=" + message
+                + " | openMs=" + openDurationMs
+                + " | uri=" + spec.uri
+                + " | position=" + spec.position
+                + " | length=" + spec.length
+                + " | method=" + DataSpec.getStringForHttpMethod(spec.httpMethod)
+                + " | headers=" + headerDump
+                + " | body=" + truncatedBody);
     }
 
     @NonNull

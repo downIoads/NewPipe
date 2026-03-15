@@ -123,6 +123,7 @@ import org.schabi.newpipe.player.ui.PlayerUi;
 import org.schabi.newpipe.player.ui.PlayerUiList;
 import org.schabi.newpipe.player.ui.PopupPlayerUi;
 import org.schabi.newpipe.player.ui.VideoPlayerUi;
+import org.schabi.newpipe.util.DebugFileLog;
 import org.schabi.newpipe.util.DependentPreferenceHelper;
 import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.ExtractorHelper;
@@ -1781,6 +1782,20 @@ public final class Player implements PlaybackListener, Listener {
     public void onPlayerError(@NonNull final PlaybackException error) {
         Log.e(TAG, "ExoPlayer - onPlayerError() called with:", error);
 
+        // Persist error info to file for offline debugging
+        final long positionMs = exoPlayerIsNull() ? -1
+                : simpleExoPlayer.getCurrentPosition();
+        final long durationMs = exoPlayerIsNull() ? -1
+                : simpleExoPlayer.getDuration();
+        final String streamUrl = currentItem != null ? currentItem.getUrl() : "null";
+        final String streamTitle = currentItem != null ? currentItem.getTitle() : "null";
+        DebugFileLog.log(TAG, "onPlayerError"
+                + " | errorCode=" + error.getErrorCodeName()
+                + " | position=" + positionMs + "ms"
+                + " | duration=" + durationMs + "ms"
+                + " | stream=" + streamTitle
+                + " | url=" + streamUrl, error);
+
         saveStreamProgressState();
         boolean isCatchableException = false;
 
@@ -1796,6 +1811,8 @@ public final class Player implements PlaybackListener, Listener {
             case ERROR_CODE_IO_BAD_HTTP_STATUS:
                 // HTTP 403 etc. often means the stream URL expired;
                 // reload to get fresh URLs instead of skipping
+                DebugFileLog.log(TAG, "BAD_HTTP_STATUS -> reloading for fresh URLs"
+                        + " | position=" + positionMs + "ms");
                 isCatchableException = true;
                 setRecovery();
                 reloadPlayQueueManager();
