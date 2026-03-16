@@ -124,6 +124,7 @@ import org.schabi.newpipe.player.ui.PlayerUiList;
 import org.schabi.newpipe.player.ui.PopupPlayerUi;
 import org.schabi.newpipe.player.ui.VideoPlayerUi;
 import org.schabi.newpipe.util.DebugFileLog;
+import org.schabi.newpipe.util.InfoCache;
 import org.schabi.newpipe.util.DependentPreferenceHelper;
 import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.ExtractorHelper;
@@ -1810,8 +1811,14 @@ public final class Player implements PlaybackListener, Listener {
                 break;
             case ERROR_CODE_IO_BAD_HTTP_STATUS:
                 // HTTP 403 etc. often means the stream URL expired;
-                // reload to get fresh URLs instead of skipping
-                DebugFileLog.log(TAG, "BAD_HTTP_STATUS -> reloading for fresh URLs"
+                // evict cached StreamInfo so reloading fetches fresh URLs
+                if (currentItem != null) {
+                    InfoCache.getInstance().removeInfo(
+                            currentItem.getServiceId(),
+                            currentItem.getUrl(),
+                            InfoCache.Type.STREAM);
+                }
+                DebugFileLog.log(TAG, "BAD_HTTP_STATUS -> evicted cache, reloading"
                         + " | position=" + positionMs + "ms");
                 isCatchableException = true;
                 setRecovery();
