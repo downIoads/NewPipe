@@ -16,6 +16,7 @@ import androidx.preference.PreferenceManager
 import com.google.android.material.snackbar.Snackbar
 import org.schabi.newpipe.MainActivity
 import org.schabi.newpipe.R
+import org.schabi.newpipe.util.DebugFileLog
 
 /**
  * This class contains all of the methods that should be used to let the user know that an error has
@@ -119,6 +120,9 @@ class ErrorUtil {
             if (errorInfo.messageStringId == R.string.network_error ||
                 errorInfo.messageStringId == R.string.parsing_error
             ) {
+                if (errorInfo.messageStringId == R.string.parsing_error) {
+                    persistParsingError("createNotification", errorInfo)
+                }
                 return
             }
 
@@ -158,11 +162,30 @@ class ErrorUtil {
             return intent
         }
 
+        private fun persistParsingError(source: String, errorInfo: ErrorInfo) {
+            val log = buildString {
+                append("PARSING_ERROR via=$source")
+                    .append(" action=").append(errorInfo.userAction)
+                    .append(" request=").append(errorInfo.request)
+                    .append(" service=").append(errorInfo.getServiceName())
+                if (errorInfo.stackTraces.isNotEmpty()) {
+                    errorInfo.stackTraces.forEachIndexed { index, stackTrace ->
+                        append("\n---- exception ").append(index + 1).append(" ----\n")
+                        append(stackTrace.trim())
+                    }
+                }
+            }
+            DebugFileLog.log("ErrorUtil", log)
+        }
+
         private fun showSnackbar(context: Context, rootView: View?, errorInfo: ErrorInfo) {
             // Suppress non-actionable transient errors (network errors, parsing errors)
             if (errorInfo.messageStringId == R.string.network_error ||
                 errorInfo.messageStringId == R.string.parsing_error
             ) {
+                if (errorInfo.messageStringId == R.string.parsing_error) {
+                    persistParsingError("showSnackbar", errorInfo)
+                }
                 return
             }
 

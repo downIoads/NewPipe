@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit
 import org.schabi.newpipe.MainActivity
 import org.schabi.newpipe.R
 import org.schabi.newpipe.ktx.animate
+import org.schabi.newpipe.util.DebugFileLog
 import org.schabi.newpipe.util.external_communication.ShareUtils
 
 class ErrorPanelHelper(
@@ -83,6 +84,23 @@ class ErrorPanelHelper(
                 }
             }
             Log.e(TAG, debugLog)
+        }
+
+        // Always persist parsing errors to file for later retrieval via adb
+        if (errorInfo.messageStringId == R.string.parsing_error) {
+            val persistLog = buildString {
+                append("PARSING_ERROR action=").append(errorInfo.userAction)
+                    .append(" request=").append(errorInfo.request)
+                    .append(" service=").append(errorInfo.getServiceName())
+                    .append(" reportable=").append(errorInfo.isReportable)
+                if (errorInfo.stackTraces.isNotEmpty()) {
+                    errorInfo.stackTraces.forEachIndexed { index, stackTrace ->
+                        append("\n---- exception ").append(index + 1).append(" ----\n")
+                        append(stackTrace.trim())
+                    }
+                }
+            }
+            DebugFileLog.log(TAG, persistLog)
         }
 
         ensureDefaultVisibility()
