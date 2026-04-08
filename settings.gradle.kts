@@ -10,6 +10,9 @@ pluginManagement {
         mavenCentral()
     }
 }
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
@@ -21,13 +24,14 @@ dependencyResolutionManagement {
 }
 include (":app")
 
-// Use a local copy of NewPipe Extractor by uncommenting the lines below.
-// We assume, that NewPipe and NewPipe Extractor have the same parent directory.
-// If this is not the case, please change the path in includeBuild().
+// If a local copy of NewPipe Extractor exists next to this project, use it automatically.
+// Otherwise, the remote dependency from JitPack is used.
 
-includeBuild("../NewPipeExtractor") {
-    dependencySubstitution {
-        substitute(module("com.github.TeamNewPipe:NewPipeExtractor"))
-            .using(project(":extractor"))
+if (file("../NewPipeExtractor").isDirectory) {
+    includeBuild("../NewPipeExtractor") {
+        dependencySubstitution {
+            substitute(module("com.github.downIoads:NewPipeExtractor"))
+                .using(project(":extractor"))
+        }
     }
 }

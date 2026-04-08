@@ -189,7 +189,7 @@ class AboutActivity : AppCompatActivity() {
                 "NewPipe Extractor",
                 "2017 - 2020",
                 "Christian Schabesberger",
-                "https://github.com/TeamNewPipe/NewPipeExtractor",
+                "https://github.com/downIoads/NewPipeExtractor",
                 StandardLicenses.GPL3
             ),
             SoftwareComponent(

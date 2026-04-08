@@ -59,7 +59,7 @@ NewPipe는 여러 영상·오디오 서비스를 지원합니다. YouTube부터 
 
 현재 상황과, YouTube의 인기로 인해 현재 서비스 중에서 YouTube가 가장 잘 지원됩니다. 다른 서비스를 사용하시거나, 잘 알고 계시다면 지원을 개선할 수 있도록 도와주세요! SoundCloud와 PeerTube의 관리자를 찾고 있습니다.
 
-새로운 서비스를 추가하고 싶으시다면, 먼저 저희에게 연락해 주세요! 저희의 [문서](https://teamnewpipe.github.io/documentation/)가 앱과 [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor)에 서비스를 추가하는 법에 대한 정보를 제공합니다.
+새로운 서비스를 추가하고 싶으시다면, 먼저 저희에게 연락해 주세요! 저희의 [문서](https://teamnewpipe.github.io/documentation/)가 앱과 [NewPipe Extractor](https://github.com/downIoads/NewPipeExtractor)에 서비스를 추가하는 법에 대한 정보를 제공합니다.
 
 ## 설명
 

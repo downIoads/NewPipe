@@ -63,7 +63,7 @@ NewPipe unterstützt offensichtlich mehrere Video- und Audiodienste. Anfänglich
 
 Teils den Umständen geschuldet, teils aufgrund der Bekanntheit, ist von allen Diensten YouTube der am besten Unterstützte. Wenn du einen der anderen Dienste nutzt und/oder dich mit ihm gut auskennst, hilf uns bitte, ihn besser zu machen! Wir suchen nach Betreuern für SoundCloud und PeerTube.
 
-Falls du vorhaben solltest, einen neuen Dienst hinzuzügen, kontaktiere uns bitte zuerst! In unserer [Dokumentation](https://teamnewpipe.github.io/documentation/) findest du mehr Informationen, wie man der App und dem [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) einen neuen Dienst hinzufügen kann.
+Falls du vorhaben solltest, einen neuen Dienst hinzuzügen, kontaktiere uns bitte zuerst! In unserer [Dokumentation](https://teamnewpipe.github.io/documentation/) findest du mehr Informationen, wie man der App und dem [NewPipe Extractor](https://github.com/downIoads/NewPipeExtractor) einen neuen Dienst hinzufügen kann.
 
 ## Beschreibung
 

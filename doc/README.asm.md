@@ -65,7 +65,7 @@ NewPipe এ বৰ্তমান এই সেৱাসমূহ সমৰ্�
 
 পৰিস্থিতি আৰু ইয়াৰ জনপ্ৰিয়তাৰ বাবে, এই সেৱাসমূহৰ ভিতৰত ইউটিউব সৰ্বোত্তম সমৰ্থিত। যদি আপুনি এই অন্য কোনো সেৱা ব্যৱহাৰ কৰে বা পৰিচিত, অনুগ্ৰহ কৰি আমাক ইয়াৰ বাবে সমৰ্থন উন্নত কৰাত সহায় কৰক! আমি SoundCloud আৰু PeerTube ৰ বাবে ৰক্ষণাবেক্ষণকাৰী বিচাৰিছো।
 
-যদি আপুনি নতুন সেৱা যোগ কৰাৰ মনস্থ কৰিছে তেন্তে প্ৰথমে আমাৰ সৈতে যোগাযোগ কৰক!  অধিক তথ্যৰ বাবে  [docs](https://teamnewpipe.github.io/documentation/) আৰু [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) চাওক।
+যদি আপুনি নতুন সেৱা যোগ কৰাৰ মনস্থ কৰিছে তেন্তে প্ৰথমে আমাৰ সৈতে যোগাযোগ কৰক!  অধিক তথ্যৰ বাবে  [docs](https://teamnewpipe.github.io/documentation/) আৰু [NewPipe Extractor](https://github.com/downIoads/NewPipeExtractor) চাওক।
 
 ## বিৱৰণ
 

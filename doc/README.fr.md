@@ -63,7 +63,7 @@ Comme vous pouvez le constater, NewPipe supporte de multiples services vidéo et
 
 Grace aux circonstances et en raison de sa popularité, YouTube est le service le mieux pris en charge. Si vous utilisez ou connaissez l'un de ces autres services, aidez-nous à améliorer leur prise en charge ! Nous recherchons des mainteneurs pour SoundCloud et PeerTube.
 
-Si vous avez l'intention d'ajouter un nouveau service, veuillez d'abord nous contacter ! Notre [documentation](https://teamnewpipe.github.io/documentation/) fournit plus d'informations sur la façon dont un nouveau service peut être ajouté à l'application et au [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor).
+Si vous avez l'intention d'ajouter un nouveau service, veuillez d'abord nous contacter ! Notre [documentation](https://teamnewpipe.github.io/documentation/) fournit plus d'informations sur la façon dont un nouveau service peut être ajouté à l'application et au [NewPipe Extractor](https://github.com/downIoads/NewPipeExtractor).
 
 ## Description
 

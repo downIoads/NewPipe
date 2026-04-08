@@ -60,7 +60,7 @@ Come puoi vedere, NewPipe supporta molteplici servizi audio e video. Sebbene tut
 
 Parzialmente per via delle circostanze, e parzialmente per via della sua popolarità, YouTube è il meglio supportato di questi servizi. Se usi o hai familiarità con qualcuno di questi altri servizi, per favore, aiutaci a migliorare il loro supporto! Stiamo cercando addetti a SoundCloud e PeerTube.
 
-Se vuoi aggiungere un nuovo servizio, per favore, contattaci prima! La nostra [documentazione [*N.d.T.: in inglese*]](https://teamnewpipe.github.io/documentation) fornisce più informazioni su come un nuovo servizio può essere aggiunto all'app e a [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor).
+Se vuoi aggiungere un nuovo servizio, per favore, contattaci prima! La nostra [documentazione [*N.d.T.: in inglese*]](https://teamnewpipe.github.io/documentation) fornisce più informazioni su come un nuovo servizio può essere aggiunto all'app e a [NewPipe Extractor](https://github.com/downIoads/NewPipeExtractor).
 
 ## Descrizione
 
