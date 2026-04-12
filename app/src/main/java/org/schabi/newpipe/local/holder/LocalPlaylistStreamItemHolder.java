@@ -19,7 +19,6 @@ import org.schabi.newpipe.local.history.HistoryRecordManager;
 import org.schabi.newpipe.util.DependentPreferenceHelper;
 import org.schabi.newpipe.util.Localization;
 import org.schabi.newpipe.util.image.PicassoHelper;
-import org.schabi.newpipe.util.ServiceHelper;
 import org.schabi.newpipe.views.AnimatedProgressBar;
 
 import java.time.format.DateTimeFormatter;
@@ -65,12 +64,11 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
                 itemBuilder.getContext(),
                 stream.getUploadDate(),
                 stream.getTextualUploadDate());
-        final String firstLine = Localization.concatenateStrings(stream.getUploader(),
-                ServiceHelper.getNameOfServiceById(stream.getServiceId()));
+        final String uploaderName = Localization.truncateChannelName(stream.getUploader());
         if (TextUtils.isEmpty(uploadDate)) {
-            itemAdditionalDetailsView.setText(firstLine);
+            itemAdditionalDetailsView.setText(uploaderName);
         } else {
-            itemAdditionalDetailsView.setText(firstLine + "\n" + uploadDate);
+            itemAdditionalDetailsView.setText(uploaderName + "\n" + uploadDate);
         }
 
         if (item.getStreamEntity().getDuration() > 0) {

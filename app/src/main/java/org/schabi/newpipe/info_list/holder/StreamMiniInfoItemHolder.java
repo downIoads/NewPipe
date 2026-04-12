@@ -58,10 +58,11 @@ public class StreamMiniInfoItemHolder extends InfoItemHolder {
                 itemBuilder.getContext(),
                 item.getUploadDate(),
                 item.getTextualUploadDate());
+        final String uploaderName = Localization.truncateChannelName(item.getUploaderName());
         if (TextUtils.isEmpty(uploadDate)) {
-            itemUploaderView.setText(item.getUploaderName());
+            itemUploaderView.setText(uploaderName);
         } else {
-            itemUploaderView.setText(item.getUploaderName() + "\n" + uploadDate);
+            itemUploaderView.setText(uploaderName + "\n" + uploadDate);
         }
 
         if (item.getDuration() > 0) {

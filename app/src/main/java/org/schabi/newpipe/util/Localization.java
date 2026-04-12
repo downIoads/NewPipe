@@ -72,6 +72,20 @@ public final class Localization {
 
     private Localization() { }
 
+    private static final int MAX_CHANNEL_NAME_LENGTH = 30;
+    private static final int TRUNCATED_CHANNEL_NAME_LENGTH = 27;
+
+    @NonNull
+    public static String truncateChannelName(@Nullable final String name) {
+        if (name == null) {
+            return "";
+        }
+        if (name.length() >= MAX_CHANNEL_NAME_LENGTH) {
+            return name.substring(0, TRUNCATED_CHANNEL_NAME_LENGTH) + "...";
+        }
+        return name;
+    }
+
     @NonNull
     public static String concatenateStrings(final String... strings) {
         return concatenateStrings(DOT_SEPARATOR, Arrays.asList(strings));

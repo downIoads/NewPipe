@@ -89,7 +89,8 @@ public class LocalStatisticStreamItemHolder extends LocalItemHolder {
         final StreamStatisticsEntry item = (StreamStatisticsEntry) localItem;
 
         itemVideoTitleView.setText(item.getStreamEntity().getTitle());
-        itemUploaderView.setText(item.getStreamEntity().getUploader());
+        itemUploaderView.setText(
+                Localization.truncateChannelName(item.getStreamEntity().getUploader()));
 
         if (item.getStreamEntity().getDuration() > 0) {
             itemDurationView.
