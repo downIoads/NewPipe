@@ -129,7 +129,7 @@ public class BackupRestoreSettingsFragment extends BasePreferenceFragment {
     }
 
     private Set<String> getExcludedPreferenceKeys() {
-        return Collections.singleton(getString(R.string.audio_preamp_key));
+        return Collections.emptySet();
     }
 
     private void requestExportPathResult(final ActivityResult result) {

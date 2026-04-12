@@ -39,9 +39,10 @@ class ImportExportManager(
             )
 
             // add the legacy vulnerable serialized preferences (will be removed in the future)
+            @Suppress("DEPRECATION")
             ZipHelper.addFileToZip(
                 outZip,
-                BackupFileLocator.Companion.FILE_NAME_JSON_PREFS
+                BackupFileLocator.FILE_NAME_SERIALIZED_PREFS
             ) { byteOutput ->
                 ObjectOutputStream(byteOutput).use { output ->
                     output.writeObject(exportedPreferences)
@@ -99,7 +100,8 @@ class ImportExportManager(
         replaceWith = ReplaceWith("exportHasJsonPrefs")
     )
     fun exportHasSerializedPrefs(zipFile: StoredFileHelper): Boolean {
-        return ZipHelper.zipContainsFile(zipFile, BackupFileLocator.Companion.FILE_NAME_JSON_PREFS)
+        @Suppress("DEPRECATION")
+        return ZipHelper.zipContainsFile(zipFile, BackupFileLocator.FILE_NAME_SERIALIZED_PREFS)
     }
 
     fun exportHasJsonPrefs(zipFile: StoredFileHelper): Boolean {
@@ -115,7 +117,8 @@ class ImportExportManager(
     )
     @Throws(IOException::class, ClassNotFoundException::class)
     fun loadSerializedPrefs(zipFile: StoredFileHelper, preferences: SharedPreferences) {
-        ZipHelper.extractFileFromZip(zipFile, BackupFileLocator.Companion.FILE_NAME_JSON_PREFS) {
+        @Suppress("DEPRECATION")
+        ZipHelper.extractFileFromZip(zipFile, BackupFileLocator.FILE_NAME_SERIALIZED_PREFS) {
             PreferencesObjectInputStream(it).use { input ->
                 @Suppress("UNCHECKED_CAST")
                 val entries = input.readObject() as Map<String, *>
@@ -154,7 +157,8 @@ class ImportExportManager(
             }
         }.let { fileExists ->
             if (!fileExists) {
-                throw FileNotFoundException(BackupFileLocator.Companion.FILE_NAME_JSON_PREFS)
+                @Suppress("DEPRECATION")
+                throw FileNotFoundException(BackupFileLocator.FILE_NAME_SERIALIZED_PREFS)
             }
         }
     }
@@ -179,6 +183,8 @@ class ImportExportManager(
                     is Boolean -> editor.putBoolean(key, value)
 
                     is Float -> editor.putFloat(key, value)
+
+                    is Double -> editor.putFloat(key, value.toFloat())
 
                     is Int -> editor.putInt(key, value)
 
