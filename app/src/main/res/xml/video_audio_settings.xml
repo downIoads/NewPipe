@@ -4,7 +4,7 @@
     android:title="@string/settings_category_video_audio_title">
 
     <SeekBarPreference
-        android:defaultValue="-15"
+        android:defaultValue="-20"
         android:key="@string/audio_preamp_key"
         android:max="0"
         android:summary="@string/audio_preamp_summary"
@@ -45,7 +45,7 @@
         app:useSimpleSummaryProvider="true" />
 
     <SwitchPreferenceCompat
-        android:defaultValue="false"
+        android:defaultValue="true"
         android:key="@string/show_higher_resolutions_key"
         android:summary="@string/show_higher_resolutions_summary"
         android:title="@string/show_higher_resolutions_title"

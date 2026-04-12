@@ -122,7 +122,7 @@ public class App extends Application {
 
         // Initialize image loader
         final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        final int audioPreamp = prefs.getInt(getString(R.string.audio_preamp_key), -15);
+        final int audioPreamp = prefs.getInt(getString(R.string.audio_preamp_key), -20);
         Log.i(TAG, "Audio Preamp value on start: " + audioPreamp);
         PicassoHelper.init(this);
         ImageStrategy.setPreferredImageQuality(PreferredImageQuality.fromPreferenceKey(this,

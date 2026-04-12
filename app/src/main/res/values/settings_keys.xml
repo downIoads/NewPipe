@@ -119,10 +119,10 @@
     </string-array>
 
     <string name="default_resolution_key">default_resolution</string>
-    <string name="default_resolution_value">720p60</string>
+    <string name="default_resolution_value">1080p60</string>
     <string name="show_higher_resolutions_key">show_higher_resolutions</string>
     <string name="default_popup_resolution_key">default_popup_resolution</string>
-    <string name="default_popup_resolution_value">480p</string>
+    <string name="default_popup_resolution_value">1080p60</string>
     <string name="best_resolution_key">best_resolution</string>
 
     <string-array name="high_resolution_list_values">
@@ -202,7 +202,7 @@
     </string-array>
 
     <string name="left_gesture_control_key">left_gesture_control</string>
-    <string name="default_left_gesture_control_value">@string/brightness_control_key</string>
+    <string name="default_left_gesture_control_value">@string/none_control_key</string>
     <string name="brightness_control_key">brightness_control</string>
     <string name="volume_control_key">volume_control</string>
     <string name="none_control_key">none_control</string>
@@ -218,7 +218,7 @@
     </string-array>
 
     <string name="right_gesture_control_key">right_gesture_control</string>
-    <string name="default_right_gesture_control_value">@string/volume_control_key</string>
+    <string name="default_right_gesture_control_value">@string/none_control_key</string>
     <string-array name="right_gesture_control_description">
         <item>@string/volume</item>
         <item>@string/brightness</item>
@@ -256,7 +256,7 @@
     <string name="dark_theme_key">dark_theme</string>
     <string name="black_theme_key">black_theme</string>
     <string name="auto_device_theme_key">auto_device_theme</string>
-    <string name="default_theme_value">@string/auto_device_theme_key</string>
+    <string name="default_theme_value">@string/black_theme_key</string>
     <string name="default_night_theme_value">@string/dark_theme_key</string>
     <string-array name="theme_values_list">
         <item>@string/light_theme_key</item>
@@ -471,7 +471,7 @@
 
     <!-- Preferred action on open (open from external app) -->
     <string name="preferred_open_action_key">preferred_open_action_key</string>
-    <string name="preferred_open_action_default">@string/always_ask_open_action_key</string>
+    <string name="preferred_open_action_default">@string/video_player_key</string>
     <string name="preferred_open_action_last_selected_key">preferred_open_action_last_selected</string>
 
     <string name="show_info_key">show_info</string>

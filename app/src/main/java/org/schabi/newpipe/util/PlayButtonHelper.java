@@ -89,6 +89,6 @@ public final class PlayButtonHelper {
      */
     public static boolean shouldShowHoldToAppendTip(@NonNull final Context context) {
         return PreferenceManager.getDefaultSharedPreferences(context)
-                .getBoolean(context.getString(R.string.show_hold_to_append_key), true);
+                .getBoolean(context.getString(R.string.show_hold_to_append_key), false);
     }
 }

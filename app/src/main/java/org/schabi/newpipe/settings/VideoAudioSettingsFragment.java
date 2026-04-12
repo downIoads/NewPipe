@@ -54,7 +54,7 @@ public class VideoAudioSettingsFragment extends BasePreferenceFragment {
             } else if (getString(R.string.show_higher_resolutions_key).equals(key)) {
                 updateResolutionOptions();
             } else if (getString(R.string.audio_preamp_key).equals(key)) {
-                final int newValue = sharedPreferences.getInt(key, -15);
+                final int newValue = sharedPreferences.getInt(key, -20);
                 Log.i(TAG, "Audio Preamp value changed: " + newValue);
             }
         };
@@ -70,7 +70,7 @@ public class VideoAudioSettingsFragment extends BasePreferenceFragment {
     private void updateResolutionOptions() {
         final Resources resources = getResources();
         final boolean showHigherResolutions =  getPreferenceManager().getSharedPreferences()
-                .getBoolean(resources.getString(R.string.show_higher_resolutions_key), false);
+                .getBoolean(resources.getString(R.string.show_higher_resolutions_key), true);
 
         // get sorted resolution lists
         final List<String> resolutionListDescriptions = ListHelper.getSortedResolutionList(
