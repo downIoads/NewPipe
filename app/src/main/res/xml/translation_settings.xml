@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:title="@string/settings_category_translation_title">
+
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="@string/translation_enabled_key"
+        android:summary="@string/translation_enabled_summary"
+        android:title="@string/translation_enabled_title"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <Preference
+        android:key="translation_grant_storage"
+        android:title="@string/translation_grant_storage_title"
+        android:summary="@string/translation_grant_storage_summary"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <Preference
+        android:key="@string/translation_model_uri_key"
+        android:title="@string/translation_model_uri_title"
+        android:summary="@string/translation_model_uri_summary_unset"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <ListPreference
+        android:defaultValue="@string/translation_target_language_default"
+        android:entries="@array/translation_target_language_values"
+        android:entryValues="@array/translation_target_language_values"
+        android:key="@string/translation_target_language_key"
+        android:title="@string/translation_target_language_title"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false"
+        app:useSimpleSummaryProvider="true" />
+
+</PreferenceScreen>

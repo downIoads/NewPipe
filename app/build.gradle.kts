@@ -99,6 +99,47 @@ android {
         System.getProperty("versionNameSuffix")?.let { versionNameSuffix = it }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            // only build for modern 64-bit ARM phones to keep APK size sane
+            abiFilters += "arm64-v8a"
+        }
+        externalNativeBuild {
+            cmake {
+                // -march flags enable the ARM SIMD extensions that ggml's
+                // quantized matmul kernels rely on. Without them ggml falls
+                // back to scalar code that's ~50-100× slower. armv8.6-a covers
+                // every Cortex-A from 2021+, including all Tensor / Snapdragon
+                // 8 Gen X and Dimensity 8000+ chips.
+                cppFlags += listOf(
+                    "-std=c++17", "-fexceptions", "-frtti",
+                    "-march=armv8.6-a+dotprod+i8mm+fp16",
+                    "-O3"
+                )
+                arguments += listOf(
+                    // llama.cpp uses posix_madvise (NDK API 23+); bump native
+                    // API floor while keeping the rest of the app at minSdk 21.
+                    "-DANDROID_PLATFORM=android-24",
+                    "-DANDROID_STL=c++_shared",
+                    "-DLLAMA_CURL=OFF",
+                    "-DLLAMA_BUILD_EXAMPLES=OFF",
+                    "-DLLAMA_BUILD_TESTS=OFF",
+                    "-DLLAMA_BUILD_SERVER=OFF",
+                    "-DLLAMA_BUILD_TOOLS=OFF",
+                    "-DGGML_OPENMP=OFF",
+                    "-DGGML_LLAMAFILE=OFF",
+                    "-DGGML_CPU_ARM_ARCH=armv8.6-a+dotprod+i8mm+fp16",
+                    "-DBUILD_SHARED_LIBS=OFF"
+                )
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {

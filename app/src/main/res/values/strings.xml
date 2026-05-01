@@ -886,4 +886,20 @@
     <string name="youtube_player_http_403">HTTP error 403 received from server while playing, likely caused by an IP ban or streaming URL deobfuscation issues</string>
     <string name="sign_in_confirm_not_bot_error">You have been IP banned, try using a VPN</string>
     <string name="unsupported_content_in_country">This content is not available for the currently selected content country.\n\nChange your selection from \"Settings > Content > Default content country\".</string>
+
+    <!-- Comment translation -->
+    <string name="settings_category_translation_title">Translation</string>
+    <string name="translation_enabled_title">Enable comment translation</string>
+    <string name="translation_enabled_summary">Show a Translate button on each comment. Requires a downloaded TranslateGemma model file.</string>
+    <string name="translation_model_uri_title">Model file</string>
+    <string name="translation_model_uri_summary_unset">Pick the TranslateGemma .gguf file (e.g. translategemma-4b-it.Q4_K_M.gguf)</string>
+    <string name="translation_target_language_title">Target language</string>
+    <string name="translation_action_translate">Translate</string>
+    <string name="translation_action_show_original">Show Original</string>
+    <string name="translation_action_translating">Translating…</string>
+    <string name="translation_failed">Translation failed: %1$s</string>
+    <string name="translation_no_model">Pick a translation model file in Settings → Translation first.</string>
+    <string name="translation_grant_storage_title">Grant All Files Access</string>
+    <string name="translation_grant_storage_summary">Required so the app can read the model file directly from external storage and survive reinstalls without recopying.</string>
+    <string name="translation_path_unresolvable">Could not resolve the picked file to a real path. Please pick a file under /storage/emulated/0/.</string>
 </resources>

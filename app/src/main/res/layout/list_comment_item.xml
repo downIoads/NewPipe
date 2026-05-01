@@ -101,4 +101,27 @@
         android:minHeight="0dp"
         tools:text="543 replies" />
 
+    <TextView
+        android:id="@+id/translate_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignTop="@id/detail_thumbs_up_img_view"
+        android:layout_alignBottom="@id/detail_thumbs_up_img_view"
+        android:layout_toEndOf="@id/detail_heart_image_view"
+        android:layout_marginStart="12dp"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:paddingHorizontal="6dp"
+        android:paddingVertical="2dp"
+        android:textAllCaps="false"
+        android:textColor="?attr/colorAccent"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        android:text="@string/translation_action_translate"
+        tools:text="Translate"
+        tools:visibility="visible" />
+
 </RelativeLayout>

@@ -1512,4 +1512,30 @@
         <item>@string/image_quality_medium_key</item>
         <item>@string/image_quality_high_key</item>
     </string-array>
+
+    <!-- Comment translation -->
+    <string name="translation_enabled_key">translation_enabled</string>
+    <string name="translation_model_uri_key">translation_model_uri</string>
+    <string name="translation_model_path_key">translation_model_path</string>
+    <string name="translation_target_language_key">translation_target_language</string>
+    <string name="translation_target_language_default">English (US)</string>
+    <string-array name="translation_target_language_values">
+        <item>English (US)</item>
+        <item>English (UK)</item>
+        <item>German</item>
+        <item>French</item>
+        <item>Spanish</item>
+        <item>Italian</item>
+        <item>Portuguese</item>
+        <item>Dutch</item>
+        <item>Polish</item>
+        <item>Russian</item>
+        <item>Ukrainian</item>
+        <item>Turkish</item>
+        <item>Arabic</item>
+        <item>Hindi</item>
+        <item>Chinese (Simplified)</item>
+        <item>Japanese</item>
+        <item>Korean</item>
+    </string-array>
 </resources>

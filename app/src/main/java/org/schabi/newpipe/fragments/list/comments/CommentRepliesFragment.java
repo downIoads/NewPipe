@@ -19,8 +19,10 @@ import org.schabi.newpipe.databinding.CommentRepliesHeaderBinding;
 import org.schabi.newpipe.error.UserAction;
 import org.schabi.newpipe.extractor.ListExtractor;
 import org.schabi.newpipe.extractor.comments.CommentsInfoItem;
+import org.schabi.newpipe.extractor.stream.Description;
 import org.schabi.newpipe.fragments.list.BaseListInfoFragment;
 import org.schabi.newpipe.info_list.ItemViewMode;
+import org.schabi.newpipe.translation.TranslationManager;
 import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.ExtractorHelper;
 import org.schabi.newpipe.util.Localization;
@@ -44,6 +46,7 @@ public final class CommentRepliesFragment
     @State
     CommentsInfoItem commentsInfoItem; // the comment to show replies of
     private final CompositeDisposable disposables = new CompositeDisposable();
+    @Nullable private String autoTranslateSessionId;
 
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -73,6 +76,11 @@ public final class CommentRepliesFragment
     @Override
     public void onDestroyView() {
         disposables.clear();
+        if (autoTranslateSessionId != null && getContext() != null) {
+            TranslationManager.getInstance(getContext())
+                    .endAutoTranslateSession(autoTranslateSessionId);
+            autoTranslateSessionId = null;
+        }
         super.onDestroyView();
     }
 
@@ -107,13 +115,40 @@ public final class CommentRepliesFragment
             binding.heartImage.setVisibility(item.isHeartedByUploader() ? View.VISIBLE : View.GONE);
             binding.pinnedImage.setVisibility(item.isPinned() ? View.VISIBLE : View.GONE);
 
-            // setup comment content
-            TextLinkifier.fromDescription(binding.commentContent, item.getCommentText(),
+            // If the user already translated this comment in the previous
+            // screen, show the translated text here too — and start an
+            // auto-translate session so visible replies translate themselves.
+            final TranslationManager mgr = TranslationManager.getInstance(requireContext());
+            final String parentKey = parentTranslationKey(item);
+            final String cachedTranslation = mgr.getCachedTranslation(parentKey);
+            final boolean parentWasTranslated =
+                    cachedTranslation != null && mgr.isShowingTranslation(parentKey);
+
+            final Description contentToShow = parentWasTranslated
+                    ? new Description(cachedTranslation, Description.PLAIN_TEXT)
+                    : item.getCommentText();
+            TextLinkifier.fromDescription(binding.commentContent, contentToShow,
                     HtmlCompat.FROM_HTML_MODE_LEGACY, getServiceById(item.getServiceId()),
                     item.getUrl(), disposables, null);
             binding.commentContent.setMovementMethod(LongPressLinkMovementMethod.getInstance());
+
+            if (parentWasTranslated && TranslationManager.isEnabled(requireContext())) {
+                autoTranslateSessionId = parentKey;
+                mgr.beginAutoTranslateSession(parentKey);
+            }
             return binding.getRoot();
         };
+    }
+
+    private static String parentTranslationKey(@NonNull final CommentsInfoItem item) {
+        final String id = item.getCommentId();
+        if (id != null && !id.isEmpty()) {
+            return id;
+        }
+        final String url = item.getUrl() != null ? item.getUrl() : "";
+        final String text = item.getCommentText() != null
+                ? item.getCommentText().getContent() : "";
+        return url + "#" + text.hashCode();
     }
 
 

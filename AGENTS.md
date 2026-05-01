@@ -1,4 +1,4 @@
-* after changing the code compile the app using `./gradlew :app:compileDebugJavaWithJavac`
+* after changing the code compile the app using `cd /home/user/Documents/Github/downIoads/NewPipe && ./gradlew :app:compileDebugJavaWithJavac`
 
 * after successfully compiling the app, you may assume that the phone is connected and you want to install and launch the app on it:
     * first get the phone using `adb devices`
