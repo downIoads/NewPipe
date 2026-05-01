@@ -56,6 +56,11 @@ public class PlayQueueItem implements Serializable {
                 item.getUploaderUrl(), item.getStreamType());
     }
 
+    PlayQueueItem(@NonNull final PlayQueueItem item) {
+        this(item.title, item.url, item.serviceId, item.duration,
+                item.thumbnails, item.uploader, item.uploaderUrl, item.streamType);
+    }
+
     @SuppressWarnings("ParameterNumber")
     private PlayQueueItem(@Nullable final String name, @Nullable final String url,
                           final int serviceId, final long duration,

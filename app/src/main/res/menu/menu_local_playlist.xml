@@ -14,6 +14,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/menu_item_play_on_popup"
+        android:title="@string/controls_popup_title"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/menu_item_remove_watched"
         android:title="@string/remove_watched"
         app:showAsAction="never" />

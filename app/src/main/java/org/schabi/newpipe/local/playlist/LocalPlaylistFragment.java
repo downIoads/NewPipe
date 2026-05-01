@@ -53,6 +53,8 @@ import org.schabi.newpipe.info_list.dialog.InfoItemDialog;
 import org.schabi.newpipe.info_list.dialog.StreamDialogDefaultEntry;
 import org.schabi.newpipe.local.BaseLocalListFragment;
 import org.schabi.newpipe.local.history.HistoryRecordManager;
+import org.schabi.newpipe.player.PlayerType;
+import org.schabi.newpipe.player.playqueue.InfiniteShufflePlayQueue;
 import org.schabi.newpipe.player.playqueue.PlayQueue;
 import org.schabi.newpipe.player.playqueue.SinglePlayQueue;
 import org.schabi.newpipe.util.Localization;
@@ -363,6 +365,8 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
             createShareConfirmationDialog();
         } else if (item.getItemId() == R.id.menu_item_rename_playlist) {
             createRenameDialog();
+        } else if (item.getItemId() == R.id.menu_item_play_on_popup) {
+            NavigationHelper.playOnPopupPlayer(requireContext(), getPlayQueue(), false);
         } else if (item.getItemId() == R.id.menu_item_remove_watched) {
             if (!isRewritingPlaylist) {
                 new AlertDialog.Builder(requireContext())
@@ -534,7 +538,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
         }
         setStreamCountAndOverallDuration(itemListAdapter.getItemsList());
 
-        PlayButtonHelper.initPlaylistControlClickListener(activity, playlistControlBinding, this);
+        initLocalPlaylistControls();
 
         hideLoading();
     }
@@ -869,8 +873,16 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     }
 
     private PlayQueue getPlayQueue(final int index) {
+        return new SinglePlayQueue(getStreamInfoItems(), index);
+    }
+
+    private PlayQueue getShufflePlayQueue() {
+        return new InfiniteShufflePlayQueue(getStreamInfoItems());
+    }
+
+    private List<StreamInfoItem> getStreamInfoItems() {
         if (itemListAdapter == null) {
-            return new SinglePlayQueue(Collections.emptyList(), 0);
+            return Collections.emptyList();
         }
 
         final List<LocalItem> infoItems = itemListAdapter.getItemsList();
@@ -880,7 +892,22 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
                 streamInfoItems.add(((PlaylistStreamEntry) item).toStreamInfoItem());
             }
         }
-        return new SinglePlayQueue(streamInfoItems, index);
+        return streamInfoItems;
+    }
+
+    private void initLocalPlaylistControls() {
+        PlayButtonHelper.initPlaylistControlClickListener(activity, playlistControlBinding, this);
+
+        playlistControlBinding.playlistCtrlPlayPopupText.setText(R.string.shuffle_all);
+        playlistControlBinding.playlistCtrlPlayPopupText
+                .setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_shuffle, 0, 0, 0);
+
+        playlistControlBinding.playlistCtrlPlayPopupButton.setOnClickListener(view ->
+                NavigationHelper.playOnMainPlayer(activity, getShufflePlayQueue()));
+        playlistControlBinding.playlistCtrlPlayPopupButton.setOnLongClickListener(view -> {
+            NavigationHelper.enqueueOnPlayer(activity, getShufflePlayQueue(), PlayerType.MAIN);
+            return true;
+        });
     }
 
     /**
@@ -909,4 +936,3 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
         this.tabsPagerAdapter = tabsPagerAdapter;
     }
 }
-
