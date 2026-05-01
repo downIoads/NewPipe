@@ -85,6 +85,10 @@ worse but it will at least run.
 
 GPU offload via OpenCL/Vulkan is **not** wired up. The model runs CPU-only.
 
+## How to push the model to your phone
+
+Install `adb` and use: `adb push /local/path/to/gguf/file /sdcard/Documents/` and then on your phone just move it anywhere you like before selecting the model via NewPipe settings.
+
 ## How it's wired
 
 | File | Purpose |
