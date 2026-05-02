@@ -2,6 +2,10 @@ package org.schabi.newpipe.util.text;
 
 import android.graphics.Paint;
 import android.text.Layout;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.util.TypedValue;
 import android.view.View;
 import android.widget.TextView;
 
@@ -9,6 +13,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.text.HtmlCompat;
 
+import org.schabi.newpipe.R;
 import org.schabi.newpipe.extractor.StreamingService;
 import org.schabi.newpipe.extractor.stream.Description;
 
@@ -102,11 +107,14 @@ public final class TextEllipsizer {
                 // comment to expand the comment, not to open links.
                 final String text = charSeqText.toString();
 
+                // Reserve the last visible line for the "(tap to expand)" hint, so truncate the
+                // actual content to (maxLines - 1) lines.
+                final int contentLines = Math.max(1, maxLines - 1);
                 final Layout layout = view.getLayout();
-                final float lineWidth = layout.getLineWidth(maxLines - 1);
+                final float lineWidth = layout.getLineWidth(contentLines - 1);
                 final float layoutWidth = layout.getWidth();
-                final int lineStart = layout.getLineStart(maxLines - 1);
-                final int lineEnd = layout.getLineEnd(maxLines - 1);
+                final int lineStart = layout.getLineStart(contentLines - 1);
+                final int lineEnd = layout.getLineEnd(contentLines - 1);
 
                 // remove characters up until there is enough space for the ellipsis
                 // (also summing 2 more pixels, just to be sure to avoid float rounding errors)
@@ -125,8 +133,19 @@ public final class TextEllipsizer {
                     end -= 1;
                 }
 
-                final String newVal = text.substring(0, end) + ELLIPSIS;
-                view.setText(newVal);
+                final String truncated = text.substring(0, end) + ELLIPSIS;
+                final String hint = view.getContext().getString(R.string.tap_to_expand);
+                final SpannableStringBuilder builder = new SpannableStringBuilder(truncated)
+                        .append('\n').append(hint);
+                final TypedValue typedValue = new TypedValue();
+                view.getContext().getTheme().resolveAttribute(
+                        android.R.attr.textColorSecondary, typedValue, true);
+                final int hintColor = view.getResources().getColor(typedValue.resourceId,
+                        view.getContext().getTheme());
+                builder.setSpan(new ForegroundColorSpan(hintColor),
+                        builder.length() - hint.length(), builder.length(),
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                view.setText(builder);
                 isEllipsized = true;
             } else {
                 isEllipsized = false;

@@ -37,7 +37,7 @@ import android.widget.Toast;
 
 public class CommentInfoItemHolder extends InfoItemHolder {
 
-    private static final int COMMENT_DEFAULT_LINES = 2;
+    private static final int COMMENT_DEFAULT_LINES = 5;
     private final int commentHorizontalPadding;
     private final int commentVerticalPadding;
 
