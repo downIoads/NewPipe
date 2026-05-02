@@ -203,27 +203,50 @@ Java_org_schabi_newpipe_translation_LlamaTranslator_nativeTranslate(
     const std::string target = jstr(env, jtarget);
     LOGI("nativeTranslate: text_len=%zu target='%s'", text.size(), target.c_str());
 
-    std::string user_msg =
-            "Translate the following text to " + target +
-            ". Only output the translation, no explanations.\n\n" + text;
+    const std::string system_msg =
+            "You are a translation engine. Output ONLY the translated text. "
+            "Do not add any preamble, explanations, notes, or labels such "
+            "as \"Here's the translation:\" or \"Translation:\". Do not "
+            "wrap the output in quotes. Preserve original formatting, "
+            "timestamps, emojis, and punctuation.";
+
+    const std::string user_msg =
+            "Translate the following text to " + target + ":\n\n" + text;
 
     std::vector<llama_chat_message> msgs = {
-            {"user", user_msg.c_str()},
+            {"system", system_msg.c_str()},
+            {"user",   user_msg.c_str()},
     };
 
     const char *tmpl = llama_model_chat_template(g_state.model, /*name*/nullptr);
     LOGI("nativeTranslate: chat template ptr=%p (%s)",
          (const void *) tmpl, tmpl ? "non-null" : "NULL");
 
-    std::vector<char> fmt(user_msg.size() + 2048);
+    std::vector<char> fmt(system_msg.size() + user_msg.size() + 2048);
     int written = llama_chat_apply_template(
             tmpl, msgs.data(), msgs.size(), /*add_ass*/true,
             fmt.data(), (int32_t) fmt.size());
     LOGI("nativeTranslate: apply_template returned %d (buf=%zu)", written, fmt.size());
+
+    // Some chat templates (Gemma among them, depending on llama.cpp build)
+    // reject a separate "system" role. Fall back to merging the system
+    // instruction into the user message so the prompt still gets through.
+    std::string merged_user;
     if (written < 0) {
-        LOGE("chat template formatting failed");
-        return nullptr;
+        LOGE("apply_template failed with system role; retrying merged into user");
+        merged_user = system_msg + "\n\n" + user_msg;
+        msgs = { {"user", merged_user.c_str()} };
+        fmt.assign(merged_user.size() + 2048, 0);
+        written = llama_chat_apply_template(
+                tmpl, msgs.data(), msgs.size(), true,
+                fmt.data(), (int32_t) fmt.size());
+        LOGI("nativeTranslate: apply_template (merged) returned %d", written);
+        if (written < 0) {
+            LOGE("chat template formatting failed even after merge");
+            return nullptr;
+        }
     }
+
     if ((size_t) written > fmt.size()) {
         fmt.resize(written);
         written = llama_chat_apply_template(

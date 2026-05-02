@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 /**
  * High-level entry point for translating short pieces of text via the
@@ -232,7 +233,7 @@ public final class TranslationManager {
                 if (out == null) {
                     postFailure(callback, "Translation failed");
                 } else {
-                    postSuccess(callback, out);
+                    postSuccess(callback, cleanupTranslation(out));
                 }
             } catch (final Throwable t) {
                 Log.e(TAG, "native translate threw", t);
@@ -331,6 +332,40 @@ public final class TranslationManager {
                     Log.w(TAG, "postFailure: dispatching onFailure: " + err);
                     cb.onFailure(err);
                 });
+    }
+
+    // Strips both opening and closing <a> tags but keeps the inner text — the
+    // model likes to wrap timestamps like "2:38" in a YouTube link, and we
+    // want the timestamp to survive as plain text.
+    private static final Pattern ANCHOR_TAG =
+            Pattern.compile("</?a\\b[^>]*>", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern BR_TAG =
+            Pattern.compile("<br\\s*/?>", Pattern.CASE_INSENSITIVE);
+
+    // Safeguard for when the model ignores the "no preamble" instruction and
+    // still emits something like "Here's the translation:\n\nabc". If the
+    // phrase "the translation:" appears within the first sentence (no .!?
+    // before it), drop everything up through it so only the body remains.
+    private static final Pattern PREAMBLE =
+            Pattern.compile("^[^.!?]*\\bthe translation:\\s*",
+                    Pattern.CASE_INSENSITIVE);
+
+    // After stripping an <a>-wrapped timestamp, the model often leaves a stray
+    // "/", "|", or "-" separator behind ("2:38 - so cool"). If the separator
+    // sits between a timestamp and the next word, drop it. Spaces required on
+    // both sides so "2:38/3:45" stays intact, and the next token must not be
+    // another timestamp so genuine ranges like "2:38 - 3:45" are preserved.
+    private static final Pattern TIMESTAMP_SEPARATOR =
+            Pattern.compile(
+                    "(\\d{1,2}:\\d{2}(?::\\d{2})?) +[-/|] +(?!\\d{1,2}:\\d{2})");
+
+    static String cleanupTranslation(@NonNull final String s) {
+        String out = ANCHOR_TAG.matcher(s).replaceAll("");
+        out = BR_TAG.matcher(out).replaceAll("");
+        out = TIMESTAMP_SEPARATOR.matcher(out).replaceAll("$1 ");
+        out = PREAMBLE.matcher(out).replaceFirst("");
+        return out.trim();
     }
 
     private static String truncate(final String s, final int max) {
