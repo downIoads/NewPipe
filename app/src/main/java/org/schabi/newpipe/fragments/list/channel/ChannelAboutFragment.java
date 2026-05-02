@@ -38,6 +38,7 @@ public class ChannelAboutFragment extends BaseDescriptionFragment {
     protected void initViews(final View rootView, final Bundle savedInstanceState) {
         super.initViews(rootView, savedInstanceState);
         binding.constraintLayout.setPadding(0, DeviceUtils.dpToPx(8, requireContext()), 0, 0);
+        binding.detailSelectDescriptionButton.setVisibility(View.GONE);
     }
 
     @Nullable
@@ -83,10 +84,5 @@ public class ChannelAboutFragment extends BaseDescriptionFragment {
             addMetadataItem(inflater, layout, false, R.string.metadata_subscribers,
                     Localization.localizeNumber(channelInfo.getSubscriberCount()));
         }
-
-        addImagesMetadataItem(inflater, layout, R.string.metadata_avatars,
-                channelInfo.getAvatars());
-        addImagesMetadataItem(inflater, layout, R.string.metadata_banners,
-                channelInfo.getBanners());
     }
 }
