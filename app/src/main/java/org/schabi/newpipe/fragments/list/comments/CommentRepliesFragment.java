@@ -7,6 +7,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.constraintlayout.widget.ConstraintLayout;
@@ -14,6 +15,7 @@ import androidx.core.text.HtmlCompat;
 
 import com.evernote.android.state.State;
 
+import org.schabi.newpipe.MainActivity;
 import org.schabi.newpipe.R;
 import org.schabi.newpipe.databinding.CommentRepliesHeaderBinding;
 import org.schabi.newpipe.error.UserAction;
@@ -71,6 +73,27 @@ public final class CommentRepliesFragment
                              @Nullable final ViewGroup container,
                              @Nullable final Bundle savedInstanceState) {
         return inflater.inflate(R.layout.fragment_comments, container, false);
+    }
+
+    @Override
+    public void onViewCreated(@NonNull final View view, @Nullable final Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        // Intercept the system back gesture (predictive back) so it mirrors the
+        // toolbar back arrow: pop just this replies fragment and re-expand the
+        // video detail at the comment's position. Without this, the gesture
+        // bypasses the activity's onBackPressed() override (because of
+        // android:enableOnBackInvokedCallback="true") and pops too far.
+        requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(),
+                new OnBackPressedCallback(true) {
+                    @Override
+                    public void handleOnBackPressed() {
+                        if (requireActivity() instanceof MainActivity) {
+                            ((MainActivity) requireActivity())
+                                    .openDetailFragmentFromCommentReplies(
+                                            getParentFragmentManager(), true);
+                        }
+                    }
+                });
     }
 
     @Override

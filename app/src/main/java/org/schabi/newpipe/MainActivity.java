@@ -613,12 +613,14 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
             } else if (fragment instanceof CommentRepliesFragment) {
-                // expand DetailsFragment if CommentRepliesFragment was opened
-                // to show the top level comments again
                 // Expand DetailsFragment if CommentRepliesFragment was opened
                 // and no other CommentRepliesFragments are on top of the back stack
-                // to show the top level comments again.
-                openDetailFragmentFromCommentReplies(fm, false);
+                // to show the top level comments again. Pop the back stack here
+                // and return so the swipe-back gesture matches the toolbar back
+                // arrow's behaviour (otherwise super.onBackPressed() would pop an
+                // additional entry, sending the user past the video detail).
+                openDetailFragmentFromCommentReplies(fm, true);
+                return;
             }
 
         } else {
@@ -906,7 +908,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void openDetailFragmentFromCommentReplies(
+    public void openDetailFragmentFromCommentReplies(
             @NonNull final FragmentManager fm,
             final boolean popBackStack
     ) {
