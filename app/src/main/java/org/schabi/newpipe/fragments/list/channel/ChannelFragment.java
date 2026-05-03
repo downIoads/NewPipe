@@ -38,8 +38,11 @@ import org.schabi.newpipe.error.ErrorInfo;
 import org.schabi.newpipe.error.ErrorUtil;
 import org.schabi.newpipe.error.UserAction;
 import org.schabi.newpipe.extractor.channel.ChannelInfo;
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs;
 import org.schabi.newpipe.extractor.exceptions.ContentNotSupportedException;
 import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler;
+import org.schabi.newpipe.extractor.stream.StreamInfoItem;
+import org.schabi.newpipe.extractor.stream.StreamType;
 import org.schabi.newpipe.fragments.BaseStateFragment;
 import org.schabi.newpipe.fragments.detail.TabAdapter;
 import org.schabi.newpipe.ktx.AnimationType;
@@ -468,6 +471,8 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
 
     private void updateTabs() {
         tabAdapter.clearAllItems();
+        int liveTabIndex = -1;
+        ListLinkHandler liveTabHandler = null;
 
         if (currentInfo != null && !channelContentNotSupported) {
             final Context context = requireContext();
@@ -482,6 +487,10 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
                     channelTabFragment.useAsFrontPage(useAsFrontPage);
                     tabAdapter.addFragment(channelTabFragment,
                             context.getString(ChannelTabHelper.getTranslationKey(tab)));
+                    if (ChannelTabs.LIVESTREAMS.equals(tab)) {
+                        liveTabIndex = tabAdapter.getCount() - 1;
+                        liveTabHandler = linkHandler;
+                    }
                 }
             }
 
@@ -504,6 +513,34 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
         if (ltab != null) {
             binding.tabLayout.selectTab(ltab);
         }
+
+        if (liveTabIndex >= 0 && liveTabHandler != null) {
+            checkLiveTabAndUpdateIcon(liveTabIndex, liveTabHandler);
+        }
+    }
+
+    private void checkLiveTabAndUpdateIcon(final int liveTabIndex,
+                                           final ListLinkHandler liveTabHandler) {
+        disposables.add(ExtractorHelper.getChannelTab(serviceId, liveTabHandler, false)
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(tabInfo -> {
+                    final boolean isLive = tabInfo.getRelatedItems().stream()
+                            .filter(StreamInfoItem.class::isInstance)
+                            .map(StreamInfoItem.class::cast)
+                            .anyMatch(s -> s.getStreamType() == StreamType.LIVE_STREAM
+                                    || s.getStreamType() == StreamType.AUDIO_LIVE_STREAM);
+                    if (isLive && binding != null) {
+                        final TabLayout.Tab tab = binding.tabLayout.getTabAt(liveTabIndex);
+                        if (tab != null) {
+                            tab.setIcon(R.drawable.ic_live_dot);
+                        }
+                    }
+                }, throwable -> {
+                    if (DEBUG) {
+                        Log.d(TAG, "Could not check live status for channel tab", throwable);
+                    }
+                }));
     }
 
 
