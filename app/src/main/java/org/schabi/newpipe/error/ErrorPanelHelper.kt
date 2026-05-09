@@ -114,10 +114,6 @@ class ErrorPanelHelper(
                 fragment.startActivityForResult(intent, ReCaptchaActivity.RECAPTCHA_REQUEST)
                 errorActionButton.setOnClickListener(null)
             }
-        } else if (errorInfo.isReportable) {
-            showAndSetErrorButtonAction(R.string.error_snackbar_action) {
-                ErrorUtil.openActivity(context, errorInfo)
-            }
         }
 
         if (errorInfo.isRetryable) {
