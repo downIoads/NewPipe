@@ -54,6 +54,7 @@
     <color name="drawer_header_font_color">#F2FFFFFF</color>
     <color name="duration_background_color">#aa000000</color>
     <color name="live_duration_background_color">#FFFF0000</color>
+    <color name="scheduled_text_color">#90EE90</color>
     <color name="playlist_stream_count_background_color">#e6000000</color>
     <color name="duration_text_color">#EEFFFFFF</color>
     <color name="video_overlay_color">#64000000</color>

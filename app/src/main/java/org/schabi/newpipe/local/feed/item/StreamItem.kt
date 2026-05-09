@@ -107,7 +107,10 @@ data class StreamItem(
 
         if (itemVersion != ItemVersion.MINI) {
             viewBinding.itemAdditionalDetails.text =
-                getStreamInfoDetailLine(viewBinding.itemAdditionalDetails.context)
+                Localization.highlightScheduled(
+                    viewBinding.itemAdditionalDetails.context,
+                    getStreamInfoDetailLine(viewBinding.itemAdditionalDetails.context)
+                )
             viewBinding.itemMembersOnlyDetails.visibility = if (isMembersOnly()) View.VISIBLE else View.GONE
         }
 

@@ -9,8 +9,11 @@ import android.content.res.Resources;
 import android.icu.text.CompactDecimalFormat;
 import android.os.Build;
 import android.text.BidiFormatter;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.format.DateUtils;
+import android.text.style.ForegroundColorSpan;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -18,6 +21,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.PluralsRes;
 import androidx.annotation.StringRes;
 import androidx.appcompat.app.AppCompatDelegate;
+import androidx.core.content.ContextCompat;
 import androidx.core.math.MathUtils;
 import androidx.core.os.LocaleListCompat;
 import androidx.preference.PreferenceManager;
@@ -468,13 +472,16 @@ public final class Localization {
                                                @Nullable final String textual) {
         if (parsed == null) {
             return textual;
-        } else if (DEBUG && context != null && PreferenceManager
+        }
+        final String relative;
+        if (DEBUG && context != null && PreferenceManager
                 .getDefaultSharedPreferences(context)
                 .getBoolean(context.getString(R.string.show_original_time_ago_key), false)) {
-            return relativeTime(parsed.offsetDateTime()) + " (" + textual + ")";
+            relative = relativeTime(parsed.offsetDateTime()) + " (" + textual + ")";
         } else {
-            return relativeTime(parsed.offsetDateTime());
+            relative = relativeTime(parsed.offsetDateTime());
         }
+        return maybePrependScheduledPrefix(context, parsed.offsetDateTime(), relative);
     }
 
     @Nullable
@@ -485,8 +492,42 @@ public final class Localization {
             return textual;
         }
         final String relative = relativeTimeShort(offsetDateTime, context, textual);
+        if (offsetDateTime.isAfter(OffsetDateTime.now())) {
+            return maybePrependScheduledPrefix(context, offsetDateTime, relative);
+        }
         final String date = formatDateIso(offsetDateTime);
         return concatenateStrings(relative, date);
+    }
+
+    @Nullable
+    private static String maybePrependScheduledPrefix(@Nullable final Context context,
+                                                      @NonNull final OffsetDateTime offsetDateTime,
+                                                      @Nullable final String relativeText) {
+        if (relativeText == null || context == null) {
+            return relativeText;
+        }
+        if (offsetDateTime.isAfter(OffsetDateTime.now())) {
+            return context.getString(R.string.scheduled_relative_time, relativeText);
+        }
+        return relativeText;
+    }
+
+    @Nullable
+    public static CharSequence highlightScheduled(@Nullable final Context context,
+                                                  @Nullable final String text) {
+        if (context == null || TextUtils.isEmpty(text)) {
+            return text;
+        }
+        final String marker = context.getString(R.string.scheduled_prefix_marker);
+        final int idx = text.indexOf(marker);
+        if (idx < 0) {
+            return text;
+        }
+        final SpannableString span = new SpannableString(text);
+        final int color = ContextCompat.getColor(context, R.color.scheduled_text_color);
+        span.setSpan(new ForegroundColorSpan(color), idx, text.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return span;
     }
 
     @Nullable

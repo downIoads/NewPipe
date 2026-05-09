@@ -65,7 +65,8 @@ public class StreamInfoItemHolder extends StreamMiniInfoItemHolder {
         }
         final StreamInfoItem item = (StreamInfoItem) infoItem;
 
-        itemAdditionalDetails.setText(getStreamInfoDetailLine(item));
+        itemAdditionalDetails.setText(Localization.highlightScheduled(
+                itemBuilder.getContext(), getStreamInfoDetailLine(item)));
         itemMembersOnlyDetails.setVisibility(isMembersOnly(item) ? View.VISIBLE : View.GONE);
     }
 

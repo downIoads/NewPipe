@@ -17,6 +17,7 @@ import org.schabi.newpipe.extractor.exceptions.AccountTerminatedException
 import org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import org.schabi.newpipe.extractor.exceptions.ContentNotSupportedException
+import org.schabi.newpipe.extractor.exceptions.ContentNotYetAvailableException
 import org.schabi.newpipe.extractor.exceptions.ExtractionException
 import org.schabi.newpipe.extractor.exceptions.GeographicRestrictionException
 import org.schabi.newpipe.extractor.exceptions.PaidContentException
@@ -252,6 +253,9 @@ class ErrorInfo private constructor(
 
                 throwable is SignInConfirmNotBotException ->
                     ErrorMessage(R.string.sign_in_confirm_not_bot_error, getServiceName(serviceId))
+
+                throwable is ContentNotYetAvailableException ->
+                    ErrorMessage(R.string.content_not_yet_available)
 
                 throwable is ContentNotAvailableException ->
                     ErrorMessage(R.string.content_not_available)
