@@ -116,6 +116,7 @@ import org.schabi.newpipe.player.playqueue.PlayQueue;
 import org.schabi.newpipe.player.playqueue.PlayQueueItem;
 import org.schabi.newpipe.player.playqueue.SinglePlayQueue;
 import org.schabi.newpipe.player.resolver.AudioPlaybackResolver;
+import org.schabi.newpipe.player.resolver.PlaybackResolver;
 import org.schabi.newpipe.player.resolver.VideoPlaybackResolver;
 import org.schabi.newpipe.player.resolver.VideoPlaybackResolver.SourceType;
 import org.schabi.newpipe.player.ui.MainPlayerUi;
@@ -190,7 +191,7 @@ public final class Player implements PlaybackListener, Listener {
 
     public static final int RENDERER_UNAVAILABLE = -1;
     private static final String PICASSO_PLAYER_THUMBNAIL_TAG = "PICASSO_PLAYER_THUMBNAIL_TAG";
-    private static final int LIVE_END_MAX_RETRIES = 2;
+    private static final int LIVE_END_MAX_RETRIES = 8;
     private static final long LIVE_END_RETRY_RESET_MILLIS = 60_000L;
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -1128,6 +1129,16 @@ public final class Player implements PlaybackListener, Listener {
 
         onUpdateProgress(Math.max((int) simpleExoPlayer.getCurrentPosition(), 0),
                 (int) simpleExoPlayer.getDuration(), simpleExoPlayer.getBufferedPercentage());
+
+        // Heartbeat while stuck buffering: if we've been buffering for over 5 seconds and every
+        // 5 seconds thereafter, log a probe so a stuck spinner is diagnosable from logcat.
+        if (bufferingStartElapsedRealtimeMs != -1L) {
+            final long elapsed =
+                    SystemClock.elapsedRealtime() - bufferingStartElapsedRealtimeMs;
+            if (elapsed >= 5000L && (elapsed / 1000L) % 5L == 0L) {
+                logBufferingProbe("stuck buffering " + elapsed + "ms");
+            }
+        }
     }
 
     private Disposable getProgressUpdateDisposable() {
@@ -1191,6 +1202,7 @@ public final class Player implements PlaybackListener, Listener {
                 if (isPrepared) {
                     changeState(STATE_BUFFERING);
                 }
+                logBufferingProbe("STATE_BUFFERING");
                 break;
             case com.google.android.exoplayer2.Player.STATE_READY: //3
                 maybeLogBufferingEnd();
@@ -1203,10 +1215,32 @@ public final class Player implements PlaybackListener, Listener {
             case com.google.android.exoplayer2.Player.STATE_ENDED: // 4
                 resetBufferingLagTrace();
                 if (shouldRetryLiveEnd()) {
+                    final boolean isPremiereBroadcast = currentMetadata != null
+                            && currentMetadata.getMaybeStreamInfo()
+                                    .map(PlaybackResolver::isYoutubePremiereBroadcast)
+                                    .orElse(false);
                     Log.w(TAG, "Live stream ended unexpectedly; reloading from live edge: "
-                            + currentMetadata.getStreamUrl());
+                            + currentMetadata.getStreamUrl()
+                            + " (isPremiereBroadcast=" + isPremiereBroadcast + ")");
                     if (playQueue != null) {
-                        playQueue.unsetRecovery(playQueue.getIndex());
+                        if (isPremiereBroadcast) {
+                            // Resume past the placeholder content we just exhausted; a fresh
+                            // extraction below will provide URLs with more recently broadcast
+                            // segments, so seeking past the old end avoids replaying it.
+                            final long endPositionMs = exoPlayerIsNull()
+                                    ? 0L : simpleExoPlayer.getCurrentPosition();
+                            setRecovery(playQueue.getIndex(), Math.max(0L, endPositionMs));
+                        } else {
+                            playQueue.unsetRecovery(playQueue.getIndex());
+                        }
+                    }
+                    if (isPremiereBroadcast && currentMetadata != null) {
+                        // Force the StreamInfo cache to drop the stale entry so the reload
+                        // fetches fresh stream URLs with the latest broadcast content.
+                        InfoCache.getInstance().removeInfo(
+                                currentMetadata.getServiceId(),
+                                currentMetadata.getStreamUrl(),
+                                InfoCache.Type.STREAM);
                     }
                     isPrepared = false;
                     reloadPlayQueueManager();
@@ -1225,6 +1259,24 @@ public final class Player implements PlaybackListener, Listener {
         }
         bufferingStartElapsedRealtimeMs = SystemClock.elapsedRealtime();
         bufferingStartPositionMs = (int) simpleExoPlayer.getCurrentPosition();
+    }
+
+    private void logBufferingProbe(@NonNull final String tag) {
+        if (exoPlayerIsNull()) {
+            return;
+        }
+        final long pos = simpleExoPlayer.getCurrentPosition();
+        final long duration = simpleExoPlayer.getDuration();
+        final int buffered = simpleExoPlayer.getBufferedPercentage();
+        final boolean isLoading = simpleExoPlayer.isLoading();
+        final StreamType streamType = currentMetadata == null ? null
+                : currentMetadata.getStreamType();
+        final String url = currentMetadata == null ? "?" : currentMetadata.getStreamUrl();
+        Log.d(TAG, "Lag probe - " + tag + " pos=" + pos + "/" + duration
+                + " buffered=" + buffered + "%"
+                + " loading=" + isLoading
+                + " streamType=" + streamType
+                + " url=" + url);
     }
 
     private void maybeLogBufferingEnd() {
@@ -2618,7 +2670,17 @@ public final class Player implements PlaybackListener, Listener {
         if (currentMetadata.getServiceId() != YouTube.getServiceId()) {
             return false;
         }
-        if (!StreamTypeUtil.isLiveStream(currentMetadata.getStreamType())) {
+        final boolean isLiveStreamType =
+                StreamTypeUtil.isLiveStream(currentMetadata.getStreamType());
+        // YouTube premieres that have just started broadcasting are extracted as VIDEO_STREAM
+        // with a placeholder duration but their segment URLs carry source=yt_premiere_broadcast.
+        // Treat that case as live so playback restarts from the live edge instead of stopping
+        // at the placeholder duration.
+        final boolean isPremiereBroadcast = !isLiveStreamType
+                && currentMetadata.getMaybeStreamInfo()
+                        .map(PlaybackResolver::isYoutubePremiereBroadcast)
+                        .orElse(false);
+        if (!isLiveStreamType && !isPremiereBroadcast) {
             return false;
         }
         final String url = currentMetadata.getStreamUrl();
@@ -2634,11 +2696,19 @@ public final class Player implements PlaybackListener, Listener {
         }
 
         if (liveEndRetryCount >= LIVE_END_MAX_RETRIES) {
+            Log.w(TAG, "Live end retry budget exhausted after " + liveEndRetryCount
+                    + " retries for url=" + url
+                    + " (isLiveStreamType=" + isLiveStreamType
+                    + ", isPremiereBroadcast=" + isPremiereBroadcast + ")");
             return false;
         }
 
         liveEndRetryCount++;
         liveEndRetryElapsed = now;
+        Log.i(TAG, "Live end retry " + liveEndRetryCount + "/" + LIVE_END_MAX_RETRIES
+                + " for url=" + url
+                + " (isLiveStreamType=" + isLiveStreamType
+                + ", isPremiereBroadcast=" + isPremiereBroadcast + ")");
         return true;
     }
 

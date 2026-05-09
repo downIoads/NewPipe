@@ -43,6 +43,7 @@ import org.schabi.newpipe.util.StreamTypeUtil;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -195,8 +196,15 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
     @Nullable
     static MediaSource maybeBuildLiveMediaSource(final PlayerDataSource dataSource,
                                                  final StreamInfo info) {
-        final boolean isLiveStream = StreamTypeUtil.isLiveStream(info.getStreamType())
-                || isYoutubeLiveStream(info);
+        final boolean isLiveStreamType = StreamTypeUtil.isLiveStream(info.getStreamType());
+        final boolean isYoutubeLive = isYoutubeLiveStream(info);
+        final boolean isLiveStream = isLiveStreamType || isYoutubeLive;
+        Log.d(TAG, "maybeBuildLiveMediaSource: streamType=" + info.getStreamType()
+                + ", duration=" + info.getDuration()
+                + ", hlsUrlEmpty=" + info.getHlsUrl().isEmpty()
+                + ", dashUrlEmpty=" + info.getDashMpdUrl().isEmpty()
+                + ", isYoutubePremiereBroadcast=" + isYoutubePremiereBroadcast(info)
+                + ", -> isLiveStream=" + isLiveStream);
         if (!isLiveStream) {
             return null;
         }
@@ -204,11 +212,14 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
         try {
             final StreamInfoTag tag = StreamInfoTag.of(info);
             if (!info.getHlsUrl().isEmpty()) {
+                Log.d(TAG, "maybeBuildLiveMediaSource: using HLS manifest");
                 return buildLiveMediaSource(dataSource, info.getHlsUrl(), C.CONTENT_TYPE_HLS, tag);
             } else if (!info.getDashMpdUrl().isEmpty()) {
+                Log.d(TAG, "maybeBuildLiveMediaSource: using DASH manifest");
                 return buildLiveMediaSource(
                         dataSource, info.getDashMpdUrl(), C.CONTENT_TYPE_DASH, tag);
             }
+            Log.w(TAG, "maybeBuildLiveMediaSource: live stream has no HLS or DASH manifest URL");
         } catch (final Exception e) {
             Log.w(TAG, "Error when generating live media source, falling back to standard sources",
                     e);
@@ -221,8 +232,48 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
         if (info.getServiceId() != ServiceList.YouTube.getServiceId()) {
             return false;
         }
-        if (!info.getHlsUrl().isEmpty() || !info.getDashMpdUrl().isEmpty()) {
-            return info.getDuration() <= 0;
+        if (info.getHlsUrl().isEmpty() && info.getDashMpdUrl().isEmpty()) {
+            return false;
+        }
+        if (info.getDuration() <= 0) {
+            return true;
+        }
+        // Premieres that have started broadcasting are returned with streamType=VIDEO_STREAM and
+        // a placeholder duration, but each per-stream URL has source=yt_premiere_broadcast and
+        // serves a fixed-length segment. The HLS/DASH manifest, on the other hand, is updated
+        // by YouTube as new content is broadcast. Treat such streams as live so the player uses
+        // the manifest path (which advances) instead of the finite per-stream URL.
+        return isYoutubePremiereBroadcast(info);
+    }
+
+    /**
+     * A YouTube premiere that has just started broadcasting is returned with
+     * {@link StreamType#VIDEO_STREAM} and a placeholder/expected duration. The actual segment
+     * URLs carry the {@code source=yt_premiere_broadcast} query parameter. We use that as a hint
+     * to recognise the stream as live for behaviours like end-of-stream retry.
+     *
+     * @param info the {@link StreamInfo} to inspect
+     * @return {@code true} if any audio/video stream URL contains the premiere broadcast marker
+     */
+    static boolean isYoutubePremiereBroadcast(final StreamInfo info) {
+        if (info == null || info.getServiceId() != ServiceList.YouTube.getServiceId()) {
+            return false;
+        }
+        return streamContainsPremiereBroadcastSource(info.getAudioStreams())
+                || streamContainsPremiereBroadcastSource(info.getVideoStreams())
+                || streamContainsPremiereBroadcastSource(info.getVideoOnlyStreams());
+    }
+
+    private static boolean streamContainsPremiereBroadcastSource(
+            final List<? extends Stream> streams) {
+        if (streams == null) {
+            return false;
+        }
+        for (final Stream stream : streams) {
+            final String content = stream.getContent();
+            if (content != null && content.contains("source=yt_premiere_broadcast")) {
+                return true;
+            }
         }
         return false;
     }

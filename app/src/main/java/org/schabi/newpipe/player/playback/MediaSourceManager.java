@@ -439,11 +439,14 @@ public class MediaSourceManager {
                                     + ", audio count: " + streamInfo.getAudioStreams().size()
                                     + ", video count: " + streamInfo.getVideoOnlyStreams().size()
                                     + ", " + streamInfo.getVideoStreams().size();
+                            Log.w(TAG, "MediaSource - resolver returned null: " + message);
                             return FailedMediaSource.of(stream,
                                     new MediaSourceResolutionException(message));
                         })
                 )
                 .onErrorReturn(throwable -> {
+                    Log.w(TAG, "MediaSource - resolver threw for url=" + stream.getUrl(),
+                            throwable);
                     if (throwable instanceof ExtractionException) {
                         return FailedMediaSource.of(stream, new StreamInfoLoadException(throwable));
                     }

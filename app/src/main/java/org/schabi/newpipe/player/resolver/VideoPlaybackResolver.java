@@ -65,8 +65,17 @@ public class VideoPlaybackResolver implements PlaybackResolver {
     @Override
     @Nullable
     public MediaSource resolve(@NonNull final StreamInfo info) {
+        Log.d(TAG, "resolve() called: title=" + info.getName()
+                + ", streamType=" + info.getStreamType()
+                + ", duration=" + info.getDuration()
+                + ", videoStreams=" + info.getVideoStreams().size()
+                + ", videoOnlyStreams=" + info.getVideoOnlyStreams().size()
+                + ", audioStreams=" + info.getAudioStreams().size()
+                + ", isYoutubePremiereBroadcast="
+                + PlaybackResolver.isYoutubePremiereBroadcast(info));
         final MediaSource liveSource = PlaybackResolver.maybeBuildLiveMediaSource(dataSource, info);
         if (liveSource != null) {
+            Log.d(TAG, "resolve(): using live media source");
             streamSourceType = SourceType.LIVE_STREAM;
             return liveSource;
         }
@@ -161,6 +170,10 @@ public class VideoPlaybackResolver implements PlaybackResolver {
             }
         }
 
+        Log.d(TAG, "resolve(): returning streamSourceType=" + streamSourceType
+                + ", mediaSources=" + mediaSources.size()
+                + ", videoSelected=" + (video != null)
+                + ", audioSelected=" + (audio != null));
         if (mediaSources.size() == 1) {
             return mediaSources.get(0);
         } else {
