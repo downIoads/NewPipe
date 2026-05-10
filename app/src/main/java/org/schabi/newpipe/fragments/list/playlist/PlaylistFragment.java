@@ -81,7 +81,8 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         implements PlaylistControlViewHolder {
 
     private static final String PICASSO_PLAYLIST_TAG = "PICASSO_PLAYLIST_TAG";
-    private static final String SORT_MODE_PREF_PREFIX = "playlist_sort_mode::";
+    private static final String SORT_MODE_PREF_KEY = "remote_playlist_sort_mode";
+    private static final String PLSORT_TAG = "PlaylistSortDebug";
 
     private enum SortMode {
         DEFAULT, NEWEST_FIRST, OLDEST_FIRST, ALPHABETICAL
@@ -133,6 +134,8 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         remotePlaylistManager = new RemotePlaylistManager(NewPipeDatabase
                 .getInstance(requireContext()));
         currentSortMode = loadSortMode();
+        Log.i(PLSORT_TAG, "onCreate frag=" + TAG + " url=" + url
+                + " serviceId=" + serviceId + " sortMode=" + currentSortMode);
     }
 
     @Override
@@ -256,6 +259,9 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     public void writeTo(final Queue<Object> objectsToSave) {
         super.writeTo(objectsToSave);
         objectsToSave.add(new ArrayList<>(originalOrderItems));
+        Log.i(PLSORT_TAG, "writeTo originalOrderItems.size=" + originalOrderItems.size()
+                + " adapter.size=" + (infoListAdapter == null
+                ? "null" : infoListAdapter.getItemsList().size()));
     }
 
     @Override
@@ -267,6 +273,11 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         if (saved instanceof List) {
             originalOrderItems.addAll((List<StreamInfoItem>) saved);
         }
+        Log.i(PLSORT_TAG, "readFrom savedType="
+                + (saved == null ? "null" : saved.getClass().getSimpleName())
+                + " originalOrderItems.size=" + originalOrderItems.size()
+                + " adapter.size=" + (infoListAdapter == null
+                ? "null" : infoListAdapter.getItemsList().size()));
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -275,6 +286,8 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
 
     @Override
     public void startLoading(final boolean forceLoad) {
+        Log.i(PLSORT_TAG, "startLoading forceLoad=" + forceLoad + " url=" + url
+                + " sortMode=" + currentSortMode);
         originalOrderItems.clear();
         super.startLoading(forceLoad);
     }
@@ -342,24 +355,66 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     }
 
     @Override
+    public void showEmptyState() {
+        Log.w(PLSORT_TAG, "showEmptyState called! adapter.size="
+                + (infoListAdapter == null ? "null"
+                        : String.valueOf(infoListAdapter.getItemsList().size()))
+                + " originalOrderItems.size=" + originalOrderItems.size()
+                + " sortMode=" + currentSortMode
+                + " currentInfo=" + (currentInfo == null ? "null"
+                        : ("relatedItems=" + currentInfo.getRelatedItems().size()
+                                + " streamCount=" + currentInfo.getStreamCount()
+                                + " nextPage=" + currentInfo.getNextPage()))
+                + " url=" + url, new Throwable("showEmptyState stack"));
+        super.showEmptyState();
+    }
+
+    @Override
     public void handleNextItems(final ListExtractor.InfoItemsPage result) {
+        Log.i(PLSORT_TAG, "handleNextItems pre items=" + result.getItems().size()
+                + " hasNextPage=" + result.hasNextPage()
+                + " originalOrderItems.size=" + originalOrderItems.size()
+                + " adapter.size=" + infoListAdapter.getItemsList().size()
+                + " errors=" + result.getErrors().size());
+        if (!result.getErrors().isEmpty()) {
+            Log.w(PLSORT_TAG, "handleNextItems errors=" + result.getErrors());
+        }
         super.handleNextItems(result);
         @SuppressWarnings("unchecked") final List<StreamInfoItem> newItems =
                 (List<StreamInfoItem>) result.getItems();
         originalOrderItems.addAll(newItems);
         applyCurrentSort();
         setStreamCountAndOverallDuration(newItems, !result.hasNextPage());
+        Log.i(PLSORT_TAG, "handleNextItems post originalOrderItems.size="
+                + originalOrderItems.size()
+                + " adapter.size=" + infoListAdapter.getItemsList().size());
     }
 
     @Override
     public void handleResult(@NonNull final PlaylistInfo result) {
         final boolean wasEmptyBeforeSuper = infoListAdapter.getItemsList().isEmpty();
+        Log.i(PLSORT_TAG, "handleResult pre wasEmptyBeforeSuper=" + wasEmptyBeforeSuper
+                + " relatedItems=" + result.getRelatedItems().size()
+                + " nextPage=" + result.getNextPage()
+                + " streamCount=" + result.getStreamCount()
+                + " sortMode=" + currentSortMode
+                + " originalOrderItems.size=" + originalOrderItems.size()
+                + " errors=" + result.getErrors().size());
+        if (!result.getErrors().isEmpty()) {
+            Log.w(PLSORT_TAG, "handleResult errors=" + result.getErrors());
+        }
         super.handleResult(result);
+        Log.i(PLSORT_TAG, "handleResult mid (after super) adapter.size="
+                + infoListAdapter.getItemsList().size()
+                + " hasMoreItems=" + hasMoreItems());
         if (wasEmptyBeforeSuper) {
             originalOrderItems.clear();
             originalOrderItems.addAll(result.getRelatedItems());
             applyCurrentSort();
         }
+        Log.i(PLSORT_TAG, "handleResult post adapter.size="
+                + infoListAdapter.getItemsList().size()
+                + " originalOrderItems.size=" + originalOrderItems.size());
 
         animate(headerBinding.getRoot(), true, 100);
         animate(headerBinding.uploaderLayout, true, 300);
@@ -653,6 +708,11 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     }
 
     private void applyCurrentSort() {
+        Log.i(PLSORT_TAG, "applyCurrentSort mode=" + currentSortMode
+                + " adapterNull=" + (infoListAdapter == null)
+                + " originalOrderItems.size=" + originalOrderItems.size()
+                + " adapter.size=" + (infoListAdapter == null ? "null"
+                        : String.valueOf(infoListAdapter.getItemsList().size())));
         if (infoListAdapter == null) {
             return;
         }
@@ -675,6 +735,8 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         }
         infoListAdapter.clearStreamItemList();
         infoListAdapter.addInfoItemList(sorted);
+        Log.i(PLSORT_TAG, "applyCurrentSort done sorted.size=" + sorted.size()
+                + " adapter.size=" + infoListAdapter.getItemsList().size());
     }
 
     private static Comparator<StreamInfoItem> uploadDateComparator() {
@@ -685,12 +747,9 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     }
 
     private SortMode loadSortMode() {
-        if (TextUtils.isEmpty(url)) {
-            return SortMode.DEFAULT;
-        }
         final SharedPreferences prefs =
                 PreferenceManager.getDefaultSharedPreferences(requireContext());
-        final String stored = prefs.getString(SORT_MODE_PREF_PREFIX + url, null);
+        final String stored = prefs.getString(SORT_MODE_PREF_KEY, null);
         if (stored == null) {
             return SortMode.DEFAULT;
         }
@@ -702,12 +761,9 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     }
 
     private void saveSortMode(final SortMode mode) {
-        if (TextUtils.isEmpty(url)) {
-            return;
-        }
         PreferenceManager.getDefaultSharedPreferences(requireContext())
                 .edit()
-                .putString(SORT_MODE_PREF_PREFIX + url, mode.name())
+                .putString(SORT_MODE_PREF_KEY, mode.name())
                 .apply();
     }
 
