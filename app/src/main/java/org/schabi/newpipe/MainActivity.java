@@ -73,6 +73,7 @@ import org.schabi.newpipe.fragments.BackPressable;
 import org.schabi.newpipe.fragments.MainFragment;
 import org.schabi.newpipe.fragments.detail.VideoDetailFragment;
 import org.schabi.newpipe.fragments.list.comments.CommentRepliesFragment;
+import org.schabi.newpipe.fragments.list.playlist.PlaylistFragment;
 import org.schabi.newpipe.fragments.list.search.SearchFragment;
 import org.schabi.newpipe.local.feed.notifications.NotificationWorker;
 import org.schabi.newpipe.player.Player;
@@ -704,6 +705,13 @@ public class MainActivity extends AppCompatActivity {
             // and no other CommentRepliesFragments are on top of the back stack
             // to show the top level comments again.
             openDetailFragmentFromCommentReplies(fm, true);
+        } else if (fragment instanceof PlaylistFragment
+                && fm.getBackStackEntryCount() > 2) {
+            // A playlist was opened from another non-main fragment (e.g. the
+            // channel page). The up button should bring the user back one
+            // level (matching the swipe-back gesture) instead of jumping
+            // straight to the main fragment.
+            fm.popBackStackImmediate();
         } else if (!NavigationHelper.tryGotoSearchFragment(fm)) {
             // If search fragment wasn't found in the backstack go to the main fragment
             NavigationHelper.gotoMainFragment(fm);
