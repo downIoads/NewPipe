@@ -147,6 +147,12 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
     private StreamingService service;
     @Nullable
     private Page nextPage;
+    // YouTube Music filters that should also be queried for the current main contentFilter.
+    // Parallel lists; null entry in extraNextPages means that source is exhausted.
+    @NonNull
+    private List<String> extraContentFilters = Collections.emptyList();
+    @NonNull
+    private List<Page> extraNextPages = new ArrayList<>();
     private boolean showLocalSuggestions = true;
     private boolean showRemoteSuggestions = true;
 
@@ -391,12 +397,18 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
     public void writeTo(final Queue<Object> objectsToSave) {
         super.writeTo(objectsToSave);
         objectsToSave.add(nextPage);
+        objectsToSave.add(new ArrayList<>(extraNextPages));
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public void readFrom(@NonNull final Queue<Object> savedObjects) throws Exception {
         super.readFrom(savedObjects);
         nextPage = (Page) savedObjects.poll();
+        final Object saved = savedObjects.poll();
+        extraNextPages = saved instanceof List
+                ? new ArrayList<>((List<Page>) saved) : new ArrayList<>();
+        extraContentFilters = computeExtraContentFilters(contentFilter);
     }
 
     @Override
@@ -452,13 +464,16 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         }
 
         for (final String filter : service.getSearchQHFactory().getAvailableContentFilter()) {
-            if (filter.equals(YoutubeSearchQueryHandlerFactory.MUSIC_SONGS)) {
-                final MenuItem musicItem = menu.add(2,
-                        itemId++,
-                        0,
-                        "YouTube Music");
-                musicItem.setEnabled(false);
-            } else if (filter.equals(PeertubeSearchQueryHandlerFactory.SEPIA_VIDEOS)) {
+            // YouTube Music filters are folded into their plain-YouTube counterparts
+            // (music_videos + music_songs into "Videos", music_playlists + music_albums into
+            // "Playlists"), so we hide them from the menu and the "YouTube Music" header.
+            if (filter.equals(YoutubeSearchQueryHandlerFactory.MUSIC_SONGS)
+                    || filter.equals(YoutubeSearchQueryHandlerFactory.MUSIC_VIDEOS)
+                    || filter.equals(YoutubeSearchQueryHandlerFactory.MUSIC_ALBUMS)
+                    || filter.equals(YoutubeSearchQueryHandlerFactory.MUSIC_PLAYLISTS)) {
+                continue;
+            }
+            if (filter.equals(PeertubeSearchQueryHandlerFactory.SEPIA_VIDEOS)) {
                 final MenuItem sepiaItem = menu.add(2,
                         itemId++,
                         0,
@@ -886,20 +901,37 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         if (searchDisposable != null) {
             searchDisposable.dispose();
         }
-        searchDisposable = ExtractorHelper.searchFor(serviceId,
-                searchString,
-                Arrays.asList(contentFilter),
-                sortFilter)
+
+        extraContentFilters = computeExtraContentFilters(contentFilter);
+        extraNextPages = new ArrayList<>();
+
+        final List<Single<SearchInfo>> singles = new ArrayList<>();
+        singles.add(ExtractorHelper.searchFor(serviceId, searchString,
+                Arrays.asList(contentFilter), sortFilter));
+        for (final String extra : extraContentFilters) {
+            singles.add(ExtractorHelper.searchFor(serviceId, searchString,
+                    Collections.singletonList(extra), sortFilter));
+        }
+
+        if (singles.size() == 1) {
+            searchDisposable = singles.get(0)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .doOnEvent((searchResult, throwable) -> isLoading.set(false))
+                    .subscribe(this::handleResult, this::onItemError);
+            return;
+        }
+
+        searchDisposable = Single.zip(singles, this::mergeInitialSearchInfos)
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .doOnEvent((searchResult, throwable) -> isLoading.set(false))
                 .subscribe(this::handleResult, this::onItemError);
-
     }
 
     @Override
     protected void loadMoreItems() {
-        if (!Page.isValid(nextPage)) {
+        if (!hasMoreItems()) {
             return;
         }
         isLoading.set(true);
@@ -907,21 +939,170 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         if (searchDisposable != null) {
             searchDisposable.dispose();
         }
-        searchDisposable = ExtractorHelper.getMoreSearchItems(
-                serviceId,
-                searchString,
-                asList(contentFilter),
-                sortFilter,
-                nextPage)
+
+        // Collect Singles for sources that still have a next page; remember their source index
+        // (0 = main, 1..N = extras[i-1]) so we can update the right page slot when results return.
+        final List<Integer> sourceIndices = new ArrayList<>();
+        final List<Single<ListExtractor.InfoItemsPage<InfoItem>>> singles = new ArrayList<>();
+
+        if (Page.isValid(nextPage)) {
+            sourceIndices.add(0);
+            singles.add(ExtractorHelper.getMoreSearchItems(serviceId, searchString,
+                    asList(contentFilter), sortFilter, nextPage));
+        }
+        for (int i = 0; i < extraContentFilters.size(); i++) {
+            final Page extraPage = i < extraNextPages.size() ? extraNextPages.get(i) : null;
+            if (Page.isValid(extraPage)) {
+                sourceIndices.add(i + 1);
+                singles.add(ExtractorHelper.getMoreSearchItems(serviceId, searchString,
+                        Collections.singletonList(extraContentFilters.get(i)),
+                        sortFilter, extraPage));
+            }
+        }
+
+        if (singles.isEmpty()) {
+            isLoading.set(false);
+            showListFooter(false);
+            return;
+        }
+
+        if (singles.size() == 1) {
+            final int sourceIdx = sourceIndices.get(0);
+            searchDisposable = singles.get(0)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .doOnEvent((r, t) -> isLoading.set(false))
+                    .subscribe(page -> {
+                        applyMergedNextItems(Collections.singletonList(page),
+                                Collections.singletonList(sourceIdx));
+                    }, this::onItemError);
+            return;
+        }
+
+        searchDisposable = Single.zip(singles, objs -> {
+            final List<ListExtractor.InfoItemsPage<InfoItem>> pages = new ArrayList<>(objs.length);
+            for (final Object o : objs) {
+                @SuppressWarnings("unchecked") final ListExtractor.InfoItemsPage<InfoItem> page =
+                        (ListExtractor.InfoItemsPage<InfoItem>) o;
+                pages.add(page);
+            }
+            return pages;
+        })
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
-                .doOnEvent((nextItemsResult, throwable) -> isLoading.set(false))
-                .subscribe(this::handleNextItems, this::onItemError);
+                .doOnEvent((r, t) -> isLoading.set(false))
+                .subscribe(pages -> applyMergedNextItems(pages, sourceIndices),
+                        this::onItemError);
     }
 
     @Override
     protected boolean hasMoreItems() {
-        return Page.isValid(nextPage);
+        if (Page.isValid(nextPage)) {
+            return true;
+        }
+        for (final Page p : extraNextPages) {
+            if (Page.isValid(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Merges multiple parallel initial-page SearchInfos. The first element is the main filter's
+    // result and is mutated in place to carry round-robin-interleaved items from all sources;
+    // the extras' next-pages are stashed in extraNextPages.
+    private SearchInfo mergeInitialSearchInfos(final Object[] infos) {
+        final List<List<InfoItem>> perSourceItems = new ArrayList<>(infos.length);
+        final List<Page> newExtraNextPages = new ArrayList<>(infos.length - 1);
+        for (int i = 0; i < infos.length; i++) {
+            final SearchInfo info = (SearchInfo) infos[i];
+            perSourceItems.add(info.getRelatedItems());
+            if (i > 0) {
+                newExtraNextPages.add(info.getNextPage());
+            }
+        }
+        final SearchInfo main = (SearchInfo) infos[0];
+        main.setRelatedItems(interleave(perSourceItems));
+        extraNextPages = newExtraNextPages;
+        return main;
+    }
+
+    // Adds interleaved items from a paginated parallel fetch to the adapter, updates each
+    // source's next-page slot, and refreshes the list footer.
+    private void applyMergedNextItems(
+            final List<ListExtractor.InfoItemsPage<InfoItem>> pages,
+            final List<Integer> sourceIndices) {
+        showListFooter(false);
+
+        final List<List<InfoItem>> perSourceItems = new ArrayList<>(pages.size());
+        for (final ListExtractor.InfoItemsPage<InfoItem> p : pages) {
+            perSourceItems.add(p.getItems());
+        }
+        final List<InfoItem> merged = interleave(perSourceItems);
+        infoListAdapter.addInfoItemList(merged);
+
+        for (int i = 0; i < pages.size(); i++) {
+            final int sourceIdx = sourceIndices.get(i);
+            final Page newPage = pages.get(i).getNextPage();
+            if (sourceIdx == 0) {
+                nextPage = newPage;
+            } else {
+                final int extraIdx = sourceIdx - 1;
+                while (extraNextPages.size() <= extraIdx) {
+                    extraNextPages.add(null);
+                }
+                extraNextPages.set(extraIdx, newPage);
+            }
+
+            if (!pages.get(i).getErrors().isEmpty()) {
+                showSnackBarError(new ErrorInfo(pages.get(i).getErrors(), UserAction.SEARCHED,
+                        searchString, serviceId, getOpenInBrowserUrlForErrors()));
+            }
+        }
+
+        showListFooter(hasMoreItems());
+    }
+
+    // Round-robin interleave of the per-source item lists, preserving each source's internal
+    // order: [s0[0], s1[0], s2[0], s0[1], s1[1], s0[2], ...] (skipping exhausted sources).
+    private static <T> List<T> interleave(final List<List<T>> sources) {
+        int total = 0;
+        int maxLen = 0;
+        for (final List<T> s : sources) {
+            total += s.size();
+            if (s.size() > maxLen) {
+                maxLen = s.size();
+            }
+        }
+        final List<T> out = new ArrayList<>(total);
+        for (int i = 0; i < maxLen; i++) {
+            for (final List<T> s : sources) {
+                if (i < s.size()) {
+                    out.add(s.get(i));
+                }
+            }
+        }
+        return out;
+    }
+
+    // Returns the YouTube Music filters that should also be queried alongside the given main
+    // filter — empty for everything except VIDEOS (→ music videos + music songs) and
+    // PLAYLISTS (→ music playlists + music albums).
+    @NonNull
+    private static List<String> computeExtraContentFilters(@Nullable final String[] mainFilter) {
+        if (mainFilter == null || mainFilter.length == 0) {
+            return Collections.emptyList();
+        }
+        final String f = mainFilter[0];
+        if (YoutubeSearchQueryHandlerFactory.VIDEOS.equals(f)) {
+            return Arrays.asList(YoutubeSearchQueryHandlerFactory.MUSIC_VIDEOS,
+                    YoutubeSearchQueryHandlerFactory.MUSIC_SONGS);
+        }
+        if (YoutubeSearchQueryHandlerFactory.PLAYLISTS.equals(f)) {
+            return Arrays.asList(YoutubeSearchQueryHandlerFactory.MUSIC_PLAYLISTS,
+                    YoutubeSearchQueryHandlerFactory.MUSIC_ALBUMS);
+        }
+        return Collections.emptyList();
     }
 
     @Override
