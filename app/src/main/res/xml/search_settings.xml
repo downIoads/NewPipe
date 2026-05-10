@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:key="general_preferences"
+    android:title="@string/settings_category_search_title">
+
+    <SwitchPreferenceCompat
+        android:defaultValue="true"
+        android:key="@string/show_live_in_search_key"
+        android:summary="@string/show_live_in_search_summary"
+        android:title="@string/show_live_in_search_title"
+        app:singleLineTitle="false"
+        app:iconSpaceReserved="false" />
+
+</PreferenceScreen>

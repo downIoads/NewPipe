@@ -57,6 +57,8 @@ import org.schabi.newpipe.extractor.StreamingService;
 import org.schabi.newpipe.extractor.exceptions.ParsingException;
 import org.schabi.newpipe.extractor.search.SearchExtractor;
 import org.schabi.newpipe.extractor.search.SearchInfo;
+import org.schabi.newpipe.extractor.stream.StreamInfoItem;
+import org.schabi.newpipe.extractor.stream.StreamType;
 import org.schabi.newpipe.extractor.services.peertube.linkHandler.PeertubeSearchQueryHandlerFactory;
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory;
 import org.schabi.newpipe.fragments.BackPressable;
@@ -1038,7 +1040,7 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         for (final ListExtractor.InfoItemsPage<InfoItem> p : pages) {
             perSourceItems.add(p.getItems());
         }
-        final List<InfoItem> merged = interleave(perSourceItems);
+        final List<InfoItem> merged = filterLiveStreamsIfDisabled(interleave(perSourceItems));
         infoListAdapter.addInfoItemList(merged);
 
         for (int i = 0; i < pages.size(); i++) {
@@ -1103,6 +1105,28 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
                     YoutubeSearchQueryHandlerFactory.MUSIC_ALBUMS);
         }
         return Collections.emptyList();
+    }
+
+    // Drops live-stream items from the given list if the "Show Live In Search Results" setting
+    // is off. The setting defaults to on so non-Search call sites are unaffected.
+    @NonNull
+    private List<InfoItem> filterLiveStreamsIfDisabled(@NonNull final List<InfoItem> items) {
+        final boolean showLive = PreferenceManager.getDefaultSharedPreferences(requireContext())
+                .getBoolean(getString(R.string.show_live_in_search_key), true);
+        if (showLive) {
+            return items;
+        }
+        final List<InfoItem> filtered = new ArrayList<>(items.size());
+        for (final InfoItem item : items) {
+            if (item instanceof StreamInfoItem) {
+                final StreamType st = ((StreamInfoItem) item).getStreamType();
+                if (st == StreamType.LIVE_STREAM || st == StreamType.AUDIO_LIVE_STREAM) {
+                    continue;
+                }
+            }
+            filtered.add(item);
+        }
+        return filtered;
     }
 
     @Override
@@ -1236,6 +1260,8 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
 
         lastSearchedString = searchString;
         nextPage = result.getNextPage();
+
+        result.setRelatedItems(filterLiveStreamsIfDisabled(result.getRelatedItems()));
 
         if (infoListAdapter.getItemsList().isEmpty()) {
             if (!result.getRelatedItems().isEmpty()) {
