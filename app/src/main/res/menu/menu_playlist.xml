@@ -18,6 +18,12 @@
         tools:visible="true" />
 
     <item
+        android:id="@+id/menu_item_sort"
+        android:orderInCategory="0"
+        android:title="@string/sort"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_settings"
         android:orderInCategory="1"
         android:title="@string/settings"

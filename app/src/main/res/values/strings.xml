@@ -822,6 +822,10 @@
     <string name="scheduled_relative_time">Scheduled: %1$s</string>
     <string name="scheduled_prefix_marker">Scheduled:</string>
     <string name="sort">Sort</string>
+    <string name="playlist_sort_default">Default</string>
+    <string name="playlist_sort_newest_first">Newest first</string>
+    <string name="playlist_sort_oldest_first">Oldest first</string>
+    <string name="playlist_sort_alphabetical">Alphabetical</string>
     <string name="settings_category_exoplayer_title">ExoPlayer settings</string>
     <string name="settings_category_exoplayer_summary">Manage some ExoPlayer settings. These changes require a player restart to take effect</string>
     <string name="use_exoplayer_decoder_fallback_title">Use ExoPlayer\'s decoder fallback feature</string>

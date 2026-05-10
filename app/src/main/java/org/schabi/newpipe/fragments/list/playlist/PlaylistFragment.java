@@ -6,6 +6,7 @@ import static org.schabi.newpipe.ktx.ViewUtils.animateHideRecyclerViewAllowingSc
 import static org.schabi.newpipe.util.ServiceHelper.getServiceById;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
@@ -18,7 +19,9 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.content.res.AppCompatResources;
+import androidx.preference.PreferenceManager;
 
 import com.google.android.material.shape.CornerFamily;
 import com.google.android.material.shape.ShapeAppearanceModel;
@@ -57,8 +60,11 @@ import org.schabi.newpipe.util.external_communication.ShareUtils;
 import org.schabi.newpipe.util.image.PicassoHelper;
 import org.schabi.newpipe.util.text.TextEllipsizer;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -75,6 +81,11 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         implements PlaylistControlViewHolder {
 
     private static final String PICASSO_PLAYLIST_TAG = "PICASSO_PLAYLIST_TAG";
+    private static final String SORT_MODE_PREF_PREFIX = "playlist_sort_mode::";
+
+    private enum SortMode {
+        DEFAULT, NEWEST_FIRST, OLDEST_FIRST, ALPHABETICAL
+    }
 
     private CompositeDisposable disposables;
     private Subscription bookmarkReactor;
@@ -83,6 +94,9 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     private RemotePlaylistManager remotePlaylistManager;
     private PlaylistRemoteEntity playlistEntity;
     private Disposable progressRefreshDisposable;
+
+    private SortMode currentSortMode = SortMode.DEFAULT;
+    private final List<StreamInfoItem> originalOrderItems = new ArrayList<>();
 
     /*//////////////////////////////////////////////////////////////////////////
     // Views
@@ -118,6 +132,7 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         isBookmarkButtonReady = new AtomicBoolean(false);
         remotePlaylistManager = new RemotePlaylistManager(NewPipeDatabase
                 .getInstance(requireContext()));
+        currentSortMode = loadSortMode();
     }
 
     @Override
@@ -234,8 +249,35 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     }
 
     /*//////////////////////////////////////////////////////////////////////////
+    // State Saving
+    //////////////////////////////////////////////////////////////////////////*/
+
+    @Override
+    public void writeTo(final Queue<Object> objectsToSave) {
+        super.writeTo(objectsToSave);
+        objectsToSave.add(new ArrayList<>(originalOrderItems));
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public void readFrom(@NonNull final Queue<Object> savedObjects) throws Exception {
+        super.readFrom(savedObjects);
+        final Object saved = savedObjects.poll();
+        originalOrderItems.clear();
+        if (saved instanceof List) {
+            originalOrderItems.addAll((List<StreamInfoItem>) saved);
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
     // Load and handle
     //////////////////////////////////////////////////////////////////////////*/
+
+    @Override
+    public void startLoading(final boolean forceLoad) {
+        originalOrderItems.clear();
+        super.startLoading(forceLoad);
+    }
 
     @Override
     protected Single<ListExtractor.InfoItemsPage<StreamInfoItem>> loadMoreItemsLogic() {
@@ -250,6 +292,9 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     @Override
     public boolean onOptionsItemSelected(final MenuItem item) {
         switch (item.getItemId()) {
+            case R.id.menu_item_sort:
+                showSortDialog();
+                break;
             case R.id.action_settings:
                 NavigationHelper.openSettings(requireContext());
                 break;
@@ -299,12 +344,22 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     @Override
     public void handleNextItems(final ListExtractor.InfoItemsPage result) {
         super.handleNextItems(result);
-        setStreamCountAndOverallDuration(result.getItems(), !result.hasNextPage());
+        @SuppressWarnings("unchecked") final List<StreamInfoItem> newItems =
+                (List<StreamInfoItem>) result.getItems();
+        originalOrderItems.addAll(newItems);
+        applyCurrentSort();
+        setStreamCountAndOverallDuration(newItems, !result.hasNextPage());
     }
 
     @Override
     public void handleResult(@NonNull final PlaylistInfo result) {
+        final boolean wasEmptyBeforeSuper = infoListAdapter.getItemsList().isEmpty();
         super.handleResult(result);
+        if (wasEmptyBeforeSuper) {
+            originalOrderItems.clear();
+            originalOrderItems.addAll(result.getRelatedItems());
+            applyCurrentSort();
+        }
 
         animate(headerBinding.getRoot(), true, 100);
         animate(headerBinding.uploaderLayout, true, 300);
@@ -556,4 +611,133 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         infoListAdapter.updateVisibleItemStates(itemsList);
     }
 
+    /*//////////////////////////////////////////////////////////////////////////
+    // Sorting
+    //////////////////////////////////////////////////////////////////////////*/
+
+    private void showSortDialog() {
+        final CharSequence[] labels = {
+                getString(R.string.playlist_sort_default),
+                getString(R.string.playlist_sort_newest_first),
+                getString(R.string.playlist_sort_oldest_first),
+                getString(R.string.playlist_sort_alphabetical)
+        };
+        final SortMode[] modes = {
+                SortMode.DEFAULT,
+                SortMode.NEWEST_FIRST,
+                SortMode.OLDEST_FIRST,
+                SortMode.ALPHABETICAL
+        };
+
+        int checked = 0;
+        for (int i = 0; i < modes.length; i++) {
+            if (modes[i] == currentSortMode) {
+                checked = i;
+                break;
+            }
+        }
+
+        new AlertDialog.Builder(requireContext())
+                .setTitle(R.string.sort)
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    final SortMode picked = modes[which];
+                    if (picked != currentSortMode) {
+                        currentSortMode = picked;
+                        saveSortMode(picked);
+                        applyCurrentSort();
+                    }
+                    dialog.dismiss();
+                })
+                .setNegativeButton(R.string.cancel, (d, w) -> d.cancel())
+                .show();
+    }
+
+    private void applyCurrentSort() {
+        if (infoListAdapter == null) {
+            return;
+        }
+        final List<StreamInfoItem> sorted = new ArrayList<>(originalOrderItems);
+        switch (currentSortMode) {
+            case NEWEST_FIRST:
+                sorted.sort(uploadDateComparator().reversed());
+                break;
+            case OLDEST_FIRST:
+                sorted.sort(uploadDateComparator());
+                break;
+            case ALPHABETICAL:
+                sorted.sort(Comparator.comparing(
+                        (StreamInfoItem item) -> item.getName() == null ? "" : item.getName(),
+                        PlaylistFragment::compareTitleDigitsLettersOther));
+                break;
+            case DEFAULT:
+            default:
+                break;
+        }
+        infoListAdapter.clearStreamItemList();
+        infoListAdapter.addInfoItemList(sorted);
+    }
+
+    private static Comparator<StreamInfoItem> uploadDateComparator() {
+        return Comparator.comparing(
+                (StreamInfoItem item) -> item.getUploadDate() == null
+                        ? null : item.getUploadDate().offsetDateTime(),
+                Comparator.nullsLast(Comparator.<OffsetDateTime>naturalOrder()));
+    }
+
+    private SortMode loadSortMode() {
+        if (TextUtils.isEmpty(url)) {
+            return SortMode.DEFAULT;
+        }
+        final SharedPreferences prefs =
+                PreferenceManager.getDefaultSharedPreferences(requireContext());
+        final String stored = prefs.getString(SORT_MODE_PREF_PREFIX + url, null);
+        if (stored == null) {
+            return SortMode.DEFAULT;
+        }
+        try {
+            return SortMode.valueOf(stored);
+        } catch (final IllegalArgumentException e) {
+            return SortMode.DEFAULT;
+        }
+    }
+
+    private void saveSortMode(final SortMode mode) {
+        if (TextUtils.isEmpty(url)) {
+            return;
+        }
+        PreferenceManager.getDefaultSharedPreferences(requireContext())
+                .edit()
+                .putString(SORT_MODE_PREF_PREFIX + url, mode.name())
+                .apply();
+    }
+
+    // Orders titles as: digits (0-9), then letters (case-insensitive), then anything else.
+    private static int compareTitleDigitsLettersOther(final String a, final String b) {
+        final int len = Math.min(a.length(), b.length());
+        for (int i = 0; i < len; i++) {
+            final char ca = a.charAt(i);
+            final char cb = b.charAt(i);
+            final int catA = charCategory(ca);
+            final int catB = charCategory(cb);
+            if (catA != catB) {
+                return Integer.compare(catA, catB);
+            }
+            final char la = Character.toLowerCase(ca);
+            final char lb = Character.toLowerCase(cb);
+            if (la != lb) {
+                return Character.compare(la, lb);
+            }
+        }
+        return Integer.compare(a.length(), b.length());
+    }
+
+    private static int charCategory(final char c) {
+        if (c >= '0' && c <= '9') {
+            return 0;
+        }
+        if (Character.isLetter(c)) {
+            return 1;
+        }
+        return 2;
+    }
 }
