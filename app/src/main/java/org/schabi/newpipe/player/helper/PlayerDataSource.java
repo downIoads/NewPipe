@@ -222,6 +222,12 @@ public class PlayerDataSource {
                 .setRnParameterEnabled(rnParameterEnabled);
     }
 
+    public static void clearYoutubeManifestCaches() {
+        YoutubeProgressiveDashManifestCreator.getCache().clear();
+        YoutubeOtfDashManifestCreator.getCache().clear();
+        YoutubePostLiveStreamDvrDashManifestCreator.getCache().clear();
+    }
+
     private static void instantiateCacheIfNeeded(final Context context) {
         if (cache == null) {
             final File cacheDir = new File(context.getExternalCacheDir(), CACHE_FOLDER_NAME);

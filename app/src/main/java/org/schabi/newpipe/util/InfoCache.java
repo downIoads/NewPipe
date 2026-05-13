@@ -143,6 +143,22 @@ public final class InfoCache {
         }
     }
 
+    public void clearCache(final int serviceId,
+                           @NonNull final Type cacheType) {
+        if (DEBUG) {
+            Log.d(TAG, "clearCache() called with: "
+                    + "serviceId = [" + serviceId + "], cacheType = [" + cacheType + "]");
+        }
+        final String cacheKeyPrefix = serviceId + ":" + cacheType.ordinal() + ":";
+        synchronized (LRU_CACHE) {
+            for (final String key : LRU_CACHE.snapshot().keySet()) {
+                if (key.startsWith(cacheKeyPrefix)) {
+                    LRU_CACHE.remove(key);
+                }
+            }
+        }
+    }
+
     public void trimCache() {
         if (DEBUG) {
             Log.d(TAG, "trimCache() called");

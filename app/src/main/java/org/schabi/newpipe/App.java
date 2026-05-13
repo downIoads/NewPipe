@@ -1,11 +1,14 @@
 package org.schabi.newpipe;
 
+import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Bundle;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.core.app.NotificationChannelCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.preference.PreferenceManager;
@@ -16,11 +19,14 @@ import org.acra.ACRA;
 import org.acra.config.CoreConfigurationBuilder;
 import org.schabi.newpipe.error.ReCaptchaActivity;
 import org.schabi.newpipe.extractor.NewPipe;
+import org.schabi.newpipe.extractor.ServiceList;
 import org.schabi.newpipe.extractor.downloader.Downloader;
 import org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor;
 import org.schabi.newpipe.ktx.ExceptionUtils;
+import org.schabi.newpipe.player.helper.PlayerDataSource;
 import org.schabi.newpipe.settings.NewPipeSettings;
 import org.schabi.newpipe.util.BridgeStateSaverInitializer;
+import org.schabi.newpipe.util.InfoCache;
 import org.schabi.newpipe.util.Localization;
 import org.schabi.newpipe.util.ServiceHelper;
 import org.schabi.newpipe.util.StateSaver;
@@ -66,6 +72,8 @@ public class App extends Application {
 
     private boolean isFirstRun = false;
     private boolean notificationsRequested = false;
+    private int startedActivities = 0;
+    private boolean hasEnteredForeground = false;
 
     private static App app;
 
@@ -134,6 +142,7 @@ public class App extends Application {
         configureRxJavaErrorHandler();
 
         YoutubeStreamExtractor.setPoTokenProvider(PoTokenProviderImpl.INSTANCE);
+        registerYoutubeStreamCacheInvalidator();
     }
 
     @Override
@@ -154,6 +163,54 @@ public class App extends Application {
         final String key = getApplicationContext().getString(R.string.recaptcha_cookies_key);
         downloader.setCookie(ReCaptchaActivity.RECAPTCHA_COOKIES_KEY, prefs.getString(key, null));
         downloader.updateYoutubeRestrictedModeCookies(getApplicationContext());
+    }
+
+    private void registerYoutubeStreamCacheInvalidator() {
+        registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
+            @Override
+            public void onActivityCreated(@NonNull final Activity activity,
+                                          @Nullable final Bundle savedInstanceState) {
+            }
+
+            @Override
+            public void onActivityStarted(@NonNull final Activity activity) {
+                if (startedActivities++ == 0) {
+                    if (hasEnteredForeground) {
+                        clearYoutubeStreamCaches("app returned to foreground");
+                    }
+                    hasEnteredForeground = true;
+                }
+            }
+
+            @Override
+            public void onActivityResumed(@NonNull final Activity activity) {
+            }
+
+            @Override
+            public void onActivityPaused(@NonNull final Activity activity) {
+            }
+
+            @Override
+            public void onActivityStopped(@NonNull final Activity activity) {
+                startedActivities = Math.max(0, startedActivities - 1);
+            }
+
+            @Override
+            public void onActivitySaveInstanceState(@NonNull final Activity activity,
+                                                    @NonNull final Bundle outState) {
+            }
+
+            @Override
+            public void onActivityDestroyed(@NonNull final Activity activity) {
+            }
+        });
+    }
+
+    private void clearYoutubeStreamCaches(@NonNull final String reason) {
+        Log.d(TAG, "Clearing YouTube stream caches: " + reason);
+        InfoCache.getInstance().clearCache(ServiceList.YouTube.getServiceId(),
+                InfoCache.Type.STREAM);
+        PlayerDataSource.clearYoutubeManifestCaches();
     }
 
     private void configureRxJavaErrorHandler() {

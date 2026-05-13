@@ -6,11 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.view.View
-import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.PendingIntentCompat
-import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.preference.PreferenceManager
 import com.google.android.material.snackbar.Snackbar
@@ -147,12 +145,6 @@ class ErrorUtil {
 
             NotificationManagerCompat.from(context)
                 .notify(ERROR_REPORT_NOTIFICATION_ID, notificationBuilder.build())
-
-            ContextCompat.getMainExecutor(context).execute {
-                // since the notification is silent, also show a toast, otherwise the user is confused
-                Toast.makeText(context, R.string.error_report_notification_toast, Toast.LENGTH_SHORT)
-                    .show()
-            }
         }
 
         private fun getErrorActivityIntent(context: Context, errorInfo: ErrorInfo): Intent {
