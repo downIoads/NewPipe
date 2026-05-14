@@ -18,5 +18,6 @@ public final class RelatedItemsInfo extends ListInfo<InfoItem> {
         super(info.getServiceId(), new ListLinkHandler(info.getOriginalUrl(), info.getUrl(),
                 info.getId(), Collections.emptyList(), null), info.getName());
         setRelatedItems(new ArrayList<>(info.getRelatedItems()));
+        setNextPage(info.getRelatedItemsNextPage());
     }
 }

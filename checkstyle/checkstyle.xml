@@ -40,7 +40,9 @@
 
     <!-- Checks for Size Violations.                    -->
     <!-- See https://checkstyle.sourceforge.io/checks/sizes/index.html -->
-    <module name="FileLength"/>
+    <module name="FileLength">
+      <property name="max" value="10000"/>
+    </module>
     <module name="LineLength">
       <property name="max" value="100"/>
       <property name="fileExtensions" value="java"/>

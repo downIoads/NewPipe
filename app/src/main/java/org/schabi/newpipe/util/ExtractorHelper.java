@@ -204,6 +204,14 @@ public final class ExtractorHelper {
                 CommentsInfo.getMoreItems(NewPipe.getService(serviceId), url, nextPage));
     }
 
+    public static Single<InfoItemsPage<InfoItem>> getMoreRelatedItems(final int serviceId,
+                                                                      final String url,
+                                                                      final Page nextPage) {
+        checkServiceId(serviceId);
+        return Single.fromCallable(() ->
+                StreamInfo.getMoreRelatedItems(NewPipe.getService(serviceId), url, nextPage));
+    }
+
     public static Single<PlaylistInfo> getPlaylistInfo(final int serviceId,
                                                        final String url,
                                                        final boolean forceLoad) {

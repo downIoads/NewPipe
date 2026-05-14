@@ -24,8 +24,13 @@ import org.schabi.newpipe.fragments.list.BaseListInfoFragment;
 import org.schabi.newpipe.info_list.ItemViewMode;
 import org.schabi.newpipe.info_list.dialog.InfoItemDialog;
 import org.schabi.newpipe.ktx.ViewUtils;
+import org.schabi.newpipe.util.ExtractorHelper;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import io.reactivex.rxjava3.core.Single;
@@ -91,7 +96,7 @@ public class RelatedItemsFragment extends BaseListInfoFragment<InfoItem, Related
 
     @Override
     protected Single<ListExtractor.InfoItemsPage<InfoItem>> loadMoreItemsLogic() {
-        return Single.fromCallable(ListExtractor.InfoItemsPage::emptyPage);
+        return ExtractorHelper.getMoreRelatedItems(serviceId, url, currentNextPage);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -113,6 +118,7 @@ public class RelatedItemsFragment extends BaseListInfoFragment<InfoItem, Related
 
     @Override
     public void handleResult(@NonNull final RelatedItemsInfo result) {
+        result.setRelatedItems(filterDuplicateItems(result.getRelatedItems()));
         super.handleResult(result);
 
         if (headerBinding != null) {
@@ -120,6 +126,14 @@ public class RelatedItemsFragment extends BaseListInfoFragment<InfoItem, Related
         }
         ViewUtils.slideUp(requireView(), 120, 96, 0.06f);
 
+    }
+
+    @Override
+    public void handleNextItems(final ListExtractor.InfoItemsPage<InfoItem> result) {
+        super.handleNextItems(new ListExtractor.InfoItemsPage<>(
+                filterDuplicateItems(result.getItems()),
+                result.getNextPage(),
+                result.getErrors()));
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -175,6 +189,25 @@ public class RelatedItemsFragment extends BaseListInfoFragment<InfoItem, Related
             mode = ItemViewMode.LIST;
         }
         return mode;
+    }
+
+    private List<InfoItem> filterDuplicateItems(final List<InfoItem> items) {
+        final Set<String> seenItems = new HashSet<>();
+        for (final InfoItem item : infoListAdapter.getItemsList()) {
+            seenItems.add(getDuplicateKey(item));
+        }
+
+        final List<InfoItem> uniqueItems = new ArrayList<>();
+        for (final InfoItem item : items) {
+            if (seenItems.add(getDuplicateKey(item))) {
+                uniqueItems.add(item);
+            }
+        }
+        return uniqueItems;
+    }
+
+    private String getDuplicateKey(final InfoItem item) {
+        return item.getServiceId() + ":" + item.getInfoType() + ":" + item.getUrl();
     }
 
     @Override
