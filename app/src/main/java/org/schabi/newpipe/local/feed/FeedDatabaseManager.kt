@@ -50,7 +50,8 @@ class FeedDatabaseManager(context: Context) {
             groupId,
             includePlayedStreams,
             includePartiallyPlayedStreams,
-            if (includeFutureStreams) null else OffsetDateTime.now()
+            if (includeFutureStreams) null else OffsetDateTime.now(),
+            OffsetDateTime.now().minusDays(3)
         )
     }
 

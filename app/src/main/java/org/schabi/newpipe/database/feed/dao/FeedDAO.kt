@@ -29,6 +29,8 @@ abstract class FeedDAO {
      *                         feed streams (see `@see` items); if true no filter is applied
      * @param uploadDateBefore get only streams uploaded before this date (useful to filter out
      *                         future streams); use null to not filter by upload date
+     * @param uploadDateAfter  get only streams uploaded after this date (useful to filter out
+     *                         old streams); use null to not filter by upload date
      * @return the feed streams filtered according to the conditions provided in the parameters
      * @see StreamStateEntity.isFinished()
      * @see StreamStateEntity.PLAYBACK_FINISHED_END_MILLISECONDS
@@ -81,6 +83,11 @@ abstract class FeedDAO {
             OR s.upload_date IS NULL
             OR s.upload_date < :uploadDateBefore
         )
+        AND (
+            :uploadDateAfter IS NULL
+            OR s.upload_date IS NULL
+            OR s.upload_date > :uploadDateAfter
+        )
 
         ORDER BY s.upload_date IS NULL DESC, s.upload_date DESC, s.uploader ASC
         LIMIT 500
@@ -90,7 +97,8 @@ abstract class FeedDAO {
         groupId: Long,
         includePlayed: Boolean,
         includePartiallyPlayed: Boolean,
-        uploadDateBefore: OffsetDateTime?
+        uploadDateBefore: OffsetDateTime?,
+        uploadDateAfter: OffsetDateTime?
     ): Maybe<List<StreamWithState>>
 
     /**
