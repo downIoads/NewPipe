@@ -87,6 +87,7 @@ import org.schabi.newpipe.fragments.BackPressable;
 import org.schabi.newpipe.fragments.BaseStateFragment;
 import org.schabi.newpipe.fragments.EmptyFragment;
 import org.schabi.newpipe.fragments.MainFragment;
+import org.schabi.newpipe.fragments.list.BaseListFragment;
 import org.schabi.newpipe.fragments.list.comments.CommentsFragment;
 import org.schabi.newpipe.fragments.list.videos.RelatedItemsFragment;
 import org.schabi.newpipe.ktx.AnimationType;
@@ -627,6 +628,22 @@ public final class VideoDetailFragment
         pageAdapter = new TabAdapter(getChildFragmentManager());
         binding.viewPager.setAdapter(pageAdapter);
         binding.tabLayout.setupWithViewPager(binding.viewPager);
+        binding.tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(final TabLayout.Tab tab) {
+                // Handled by setupWithViewPager().
+            }
+
+            @Override
+            public void onTabUnselected(final TabLayout.Tab tab) {
+                // Nothing to do.
+            }
+
+            @Override
+            public void onTabReselected(final TabLayout.Tab tab) {
+                scrollSelectedTabToTop();
+            }
+        });
 
         binding.detailThumbnailRootLayout.requestFocus();
 
@@ -1053,6 +1070,22 @@ public final class VideoDetailFragment
         binding.appBarLayout.setExpanded(true, true);
         // notify tab layout of scrolling
         updateTabLayoutVisibility();
+    }
+
+    private void scrollSelectedTabToTop() {
+        scrollToTop();
+
+        final int selectedTabPosition = binding.viewPager.getCurrentItem();
+        if (selectedTabPosition < 0 || selectedTabPosition >= pageAdapter.getCount()) {
+            return;
+        }
+
+        final Fragment fragment = pageAdapter.getItem(selectedTabPosition);
+        if (fragment instanceof BaseListFragment) {
+            ((BaseListFragment<?, ?>) fragment).scrollToTop();
+        } else if (fragment instanceof BaseDescriptionFragment) {
+            ((BaseDescriptionFragment) fragment).scrollToTop();
+        }
     }
 
     public void scrollToComment(final CommentsInfoItem comment) {

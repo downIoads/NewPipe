@@ -62,6 +62,12 @@ public abstract class BaseDescriptionFragment extends BaseFragment {
         super.onDestroy();
     }
 
+    public void scrollToTop() {
+        if (binding != null) {
+            binding.getRoot().scrollTo(0, 0);
+        }
+    }
+
     /**
      * Get the description to display.
      * @return description object, if available

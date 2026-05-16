@@ -250,6 +250,12 @@ public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
         }
     }
 
+    public void scrollToTop() {
+        if (itemsList != null) {
+            itemsList.scrollToPosition(0);
+        }
+    }
+
     @Override
     protected void initListeners() {
         super.initListeners();
