@@ -629,11 +629,16 @@ public class MainActivity extends AppCompatActivity {
                     .findFragmentById(R.id.fragment_player_holder);
             // If current fragment implements BackPressable (i.e. can/wanna handle back press)
             // delegate the back press to it
-            if (fragmentPlayer instanceof BackPressable) {
-                if (!((BackPressable) fragmentPlayer).onBackPressed()) {
-                    BottomSheetBehavior.from(mainBinding.fragmentPlayerHolder)
-                            .setState(BottomSheetBehavior.STATE_COLLAPSED);
+            if (fragmentPlayer instanceof VideoDetailFragment) {
+                ((VideoDetailFragment) fragmentPlayer).minimizeOnBackPressed();
+                return;
+            } else if (fragmentPlayer instanceof BackPressable) {
+                if (((BackPressable) fragmentPlayer).onBackPressed()) {
+                    return;
                 }
+
+                BottomSheetBehavior.from(mainBinding.fragmentPlayerHolder)
+                        .setState(BottomSheetBehavior.STATE_COLLAPSED);
                 return;
             }
         }

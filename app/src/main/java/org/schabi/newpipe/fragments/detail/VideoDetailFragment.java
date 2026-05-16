@@ -2484,17 +2484,21 @@ public final class VideoDetailFragment
         bottomSheetBackCallback = new OnBackPressedCallback(shouldHandleBottomSheetBack()) {
             @Override
             public void handleOnBackPressed() {
-                if (VideoDetailFragment.this.onBackPressed()) {
-                    return;
-                }
-
-                if (bottomSheetBehavior != null) {
-                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
-                }
+                minimizeOnBackPressed();
             }
         };
         requireActivity().getOnBackPressedDispatcher()
                 .addCallback(getViewLifecycleOwner(), bottomSheetBackCallback);
+    }
+
+    public void minimizeOnBackPressed() {
+        if (isFullscreen()) {
+            VideoDetailFragment.this.onBackPressed();
+        } else if (bottomSheetBehavior != null) {
+            // System back on the expanded sheet should minimize the current player, not navigate
+            // through the play queue/history handled by onBackPressed().
+            bottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+        }
     }
 
     private boolean shouldHandleBottomSheetBack() {
