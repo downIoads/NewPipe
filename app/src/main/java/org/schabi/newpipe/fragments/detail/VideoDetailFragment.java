@@ -44,6 +44,7 @@ import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.AttrRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -219,6 +220,7 @@ public final class VideoDetailFragment
 
     private BottomSheetBehavior<FrameLayout> bottomSheetBehavior;
     private BottomSheetBehavior.BottomSheetCallback bottomSheetCallback;
+    private OnBackPressedCallback bottomSheetBackCallback;
     private BroadcastReceiver broadcastReceiver;
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -672,6 +674,7 @@ public final class VideoDetailFragment
         });
 
         setupBottomPlayer();
+        setupBottomSheetBackCallback();
         if (!playerHolder.isBound()) {
             setHeightThumbnail();
         } else {
@@ -2444,6 +2447,28 @@ public final class VideoDetailFragment
         });
     }
 
+    private void setupBottomSheetBackCallback() {
+        bottomSheetBackCallback = new OnBackPressedCallback(shouldHandleBottomSheetBack()) {
+            @Override
+            public void handleOnBackPressed() {
+                if (VideoDetailFragment.this.onBackPressed()) {
+                    return;
+                }
+
+                if (bottomSheetBehavior != null) {
+                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                }
+            }
+        };
+        requireActivity().getOnBackPressedDispatcher()
+                .addCallback(getViewLifecycleOwner(), bottomSheetBackCallback);
+    }
+
+    private boolean shouldHandleBottomSheetBack() {
+        return bottomSheetState != BottomSheetBehavior.STATE_HIDDEN
+                && bottomSheetState != BottomSheetBehavior.STATE_COLLAPSED;
+    }
+
     private void updateOverlayPlayQueueButtonVisibility() {
         final boolean isPlayQueueEmpty =
                 player == null // no player => no play queue :)
@@ -2523,6 +2548,9 @@ public final class VideoDetailFragment
         if (newState != BottomSheetBehavior.STATE_DRAGGING
                 && newState != BottomSheetBehavior.STATE_SETTLING) {
             lastStableBottomSheetState = newState;
+        }
+        if (bottomSheetBackCallback != null) {
+            bottomSheetBackCallback.setEnabled(shouldHandleBottomSheetBack());
         }
     }
 }
