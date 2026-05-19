@@ -27,7 +27,10 @@ import androidx.core.os.LocaleListCompat;
 import androidx.preference.PreferenceManager;
 
 import org.ocpsoft.prettytime.PrettyTime;
+import org.ocpsoft.prettytime.TimeUnit;
 import org.ocpsoft.prettytime.units.Decade;
+import org.ocpsoft.prettytime.units.Day;
+import org.ocpsoft.prettytime.units.Week;
 import org.schabi.newpipe.R;
 import org.schabi.newpipe.extractor.ListExtractor;
 import org.schabi.newpipe.extractor.localization.ContentCountry;
@@ -399,7 +402,12 @@ public final class Localization {
     }
 
     public static String relativeTime(@NonNull final OffsetDateTime offsetDateTime) {
-        return prettyTime.formatUnrounded(offsetDateTime);
+        final org.ocpsoft.prettytime.Duration duration =
+                prettyTime.approximateDuration(offsetDateTime.toInstant());
+        if (duration.getUnit() instanceof Week && Math.abs(duration.getQuantity()) == 1L) {
+            return prettyTime.formatUnrounded(dayDuration(duration));
+        }
+        return prettyTime.formatUnrounded(duration);
     }
 
     public static String relativeTimeShort(@NonNull final OffsetDateTime offsetDateTime) {
@@ -419,7 +427,7 @@ public final class Localization {
         } else if (seconds < 86400L) {
             value = seconds / 3600L;
             unit = "h";
-        } else if (seconds < 604800L) {
+        } else if (seconds < 1209600L) {
             value = seconds / 86400L;
             unit = "d";
         } else if (seconds < 2592000L) {
@@ -436,6 +444,45 @@ public final class Localization {
         final String formattedValue = localizeNumber(value);
         final String base = formattedValue + unit;
         return isFuture ? "in " + base : base + " ago";
+    }
+
+    private static org.ocpsoft.prettytime.Duration dayDuration(
+            @NonNull final org.ocpsoft.prettytime.Duration duration) {
+        final long days = (duration.getQuantity() * duration.getUnit().getMillisPerUnit()
+                + duration.getDelta()) / prettyTime.getUnit(Day.class).getMillisPerUnit();
+        final TimeUnit day = prettyTime.getUnit(Day.class);
+
+        return new org.ocpsoft.prettytime.Duration() {
+            @Override
+            public long getQuantity() {
+                return days;
+            }
+
+            @Override
+            public long getQuantityRounded(final int tolerance) {
+                return Math.abs(days);
+            }
+
+            @Override
+            public TimeUnit getUnit() {
+                return day;
+            }
+
+            @Override
+            public long getDelta() {
+                return 0;
+            }
+
+            @Override
+            public boolean isInPast() {
+                return days < 0;
+            }
+
+            @Override
+            public boolean isInFuture() {
+                return !isInPast();
+            }
+        };
     }
 
     public static String relativeTimeShort(@NonNull final OffsetDateTime offsetDateTime,
