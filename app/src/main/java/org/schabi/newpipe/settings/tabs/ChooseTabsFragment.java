@@ -119,7 +119,7 @@ public class ChooseTabsFragment extends Fragment {
 
     private void updateTabList() {
         tabList.clear();
-        tabList.addAll(tabsManager.getTabs());
+        tabList.addAll(tabsManager.getStoredTabs());
     }
 
     private void saveChanges() {
@@ -257,6 +257,8 @@ public class ChooseTabsFragment extends Fragment {
                     returnList.add(new ChooseTabListItem(tab.getTabId(),
                             getString(R.string.feed_group_page_summary),
                             tab.getTabIconRes(context)));
+                    break;
+                case HISTORY:
                     break;
                 default:
                     if (!tabList.contains(tab)) {

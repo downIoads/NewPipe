@@ -18,6 +18,7 @@ import org.schabi.newpipe.error.ErrorInfo;
 import org.schabi.newpipe.error.ErrorUtil;
 import org.schabi.newpipe.error.UserAction;
 import org.schabi.newpipe.settings.tabs.Tab;
+import org.schabi.newpipe.settings.tabs.TabsJsonHelper;
 import org.schabi.newpipe.settings.tabs.TabsManager;
 import org.schabi.newpipe.util.DeviceUtils;
 
@@ -166,7 +167,7 @@ public final class SettingMigrations {
             // The SoundCloud Top 50 Kiosk was removed in the extractor,
             // so we remove the corresponding tab if it exists.
             final TabsManager tabsManager = TabsManager.getManager(context);
-            final List<Tab> tabs = tabsManager.getTabs();
+            final List<Tab> tabs = tabsManager.getStoredTabs();
             final List<Tab> cleanedTabs = tabs.stream()
                     .filter(tab -> !(tab instanceof Tab.KioskTab kioskTab
                             && kioskTab.getKioskServiceId() == SoundCloud.getServiceId()
@@ -196,7 +197,7 @@ public final class SettingMigrations {
             // because it uses the default kiosk provided by the extractor
             // and is thus updated automatically.
             final TabsManager tabsManager = TabsManager.getManager(context);
-            final List<Tab> tabs = tabsManager.getTabs();
+            final List<Tab> tabs = tabsManager.getStoredTabs();
             final List<Tab> cleanedTabs = tabs.stream()
                     .filter(tab -> !(tab instanceof Tab.KioskTab kioskTab
                             && kioskTab.getKioskServiceId() == YouTube.getServiceId()
@@ -221,6 +222,42 @@ public final class SettingMigrations {
         }
     };
 
+    private static final Migration MIGRATION_8_9 = new Migration(8, 9) {
+        @Override
+        protected void migrate(@NonNull final Context context) {
+            final String savedTabsKey = context.getString(R.string.saved_tabs_key);
+            final String savedTabsJson = sp.getString(savedTabsKey, null);
+
+            if (savedTabsJson == null) {
+                sp.edit()
+                        .putBoolean(context.getString(R.string.show_history_tab_key), false)
+                        .apply();
+                return;
+            }
+
+            try {
+                final List<Tab> tabs = TabsJsonHelper.getTabsFromJson(savedTabsJson);
+                final boolean hasHistoryTab = tabs.stream()
+                        .anyMatch(tab -> tab.getTabId() == Tab.HistoryTab.ID);
+                final List<Tab> cleanedTabs = tabs.stream()
+                        .filter(tab -> tab.getTabId() != Tab.HistoryTab.ID)
+                        .collect(Collectors.toList());
+
+                final SharedPreferences.Editor editor = sp.edit()
+                        .putBoolean(context.getString(R.string.show_history_tab_key),
+                                hasHistoryTab);
+                if (hasHistoryTab) {
+                    editor.putString(savedTabsKey, TabsJsonHelper.getJsonToSave(cleanedTabs));
+                }
+                editor.apply();
+            } catch (final TabsJsonHelper.InvalidJsonException e) {
+                sp.edit()
+                        .putBoolean(context.getString(R.string.show_history_tab_key), false)
+                        .apply();
+            }
+        }
+    };
+
     /**
      * List of all implemented migrations.
      * <p>
@@ -236,12 +273,13 @@ public final class SettingMigrations {
             MIGRATION_5_6,
             MIGRATION_6_7,
             MIGRATION_7_8,
+            MIGRATION_8_9,
     };
 
     /**
      * Version number for preferences. Must be incremented every time a migration is necessary.
      */
-    private static final int VERSION = 8;
+    private static final int VERSION = 9;
 
 
     static void runMigrationsIfNeeded(@NonNull final Context context) {
