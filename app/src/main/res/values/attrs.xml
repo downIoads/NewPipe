@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <attr name="progress_horizontal_drawable" format="reference" />
+    <attr name="playback_position_color" format="color" />
+    <attr name="playback_position_progress_drawable" format="reference" />
     <!-- Can't refer to colors directly in drawable's xml-->
     <attr name="toolbar_shadow" format="reference" />
     <attr name="selector" format="reference" />

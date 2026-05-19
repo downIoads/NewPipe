@@ -88,7 +88,7 @@
         style="@style/Widget.AppCompat.ProgressBar.Horizontal"
         android:layout_width="0dp"
         android:layout_height="4dp"
-        android:progressDrawable="?progress_horizontal_drawable"
+        android:progressDrawable="?attr/playback_position_progress_drawable"
         app:layout_constraintBottom_toBottomOf="@id/itemThumbnailView"
         app:layout_constraintEnd_toEndOf="@id/itemThumbnailView"
         app:layout_constraintStart_toStartOf="@id/itemThumbnailView" />

@@ -58,6 +58,8 @@
     <color name="playlist_stream_count_background_color">#e6000000</color>
     <color name="duration_text_color">#EEFFFFFF</color>
     <color name="video_overlay_color">#64000000</color>
+    <color name="light_playback_position_color">#e53935</color>
+    <color name="dark_playback_position_color">#992722</color>
 
     <color name="subscribe_text_color">#fff</color>
     <color name="subscribed_background_color">#d6d6d6</color>
