@@ -52,7 +52,9 @@ import org.schabi.newpipe.extractor.playlist.PlaylistInfo;
 import org.schabi.newpipe.extractor.search.SearchInfo;
 import org.schabi.newpipe.extractor.stream.StreamInfo;
 import org.schabi.newpipe.extractor.stream.StreamInfoItem;
+import org.schabi.newpipe.extractor.stream.VideoStream;
 import org.schabi.newpipe.extractor.suggestion.SuggestionExtractor;
+import org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager;
 import org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper;
 import org.schabi.newpipe.util.text.TextLinkifier;
 import org.schabi.newpipe.extractor.ServiceList;
@@ -146,7 +148,67 @@ public final class ExtractorHelper {
             });
         }
 
-        return checkCache(forceLoad, serviceId, url, InfoCache.Type.STREAM, loadFromNetwork);
+        final Single<StreamInfo> result = checkCache(forceLoad, serviceId, url,
+                InfoCache.Type.STREAM, loadFromNetwork);
+
+        if (serviceId == ServiceList.YouTube.getServiceId()) {
+            return result.flatMap(info ->
+                    retryYoutubeStreamInfoIfDegraded(serviceId, url, info, 0));
+        }
+        return result;
+    }
+
+    // Maximum number of automatic retries when a YouTube StreamInfo looks
+    // degraded (only legacy <=360p formats, no adaptive video-only streams).
+    // The user's manual workaround is fully exiting the app — we approximate
+    // that by clearing YoutubeJavaScriptPlayerManager + InfoCache and retrying.
+    private static final int MAX_DEGRADED_YOUTUBE_RETRIES = 2;
+
+    private static Single<StreamInfo> retryYoutubeStreamInfoIfDegraded(
+            final int serviceId,
+            @NonNull final String url,
+            @NonNull final StreamInfo info,
+            final int attempt) {
+        if (attempt >= MAX_DEGRADED_YOUTUBE_RETRIES || !isStreamInfoLikelyDegraded(info)) {
+            return Single.just(info);
+        }
+        Log.w(TAG, "YouTube StreamInfo for " + url + " looks degraded "
+                + "(no video-only streams, max combined video height <= 360p). "
+                + "Clearing YouTube JS player caches and retrying (attempt "
+                + (attempt + 1) + "/" + MAX_DEGRADED_YOUTUBE_RETRIES + ").");
+        YoutubeJavaScriptPlayerManager.clearAllCaches();
+        CACHE.removeInfo(serviceId, url, InfoCache.Type.STREAM);
+        return Single.fromCallable(() ->
+                        StreamInfo.getInfo(NewPipe.getService(serviceId), url))
+                .doOnSuccess(fresh -> CACHE.putInfo(
+                        serviceId, url, fresh, InfoCache.Type.STREAM))
+                .flatMap(fresh ->
+                        retryYoutubeStreamInfoIfDegraded(serviceId, url, fresh, attempt + 1));
+    }
+
+    // Detects the typical signature of a YouTube extraction that silently
+    // dropped its high-resolution adaptive formats (n-parameter / signature
+    // deobfuscation failure): no video-only streams AND max combined-format
+    // height <= 360p. The dual condition avoids false-flagging legitimately
+    // low-quality videos (which still ship adaptive video-only streams) or
+    // videos where legacy 720p itag 22 came through.
+    private static boolean isStreamInfoLikelyDegraded(@NonNull final StreamInfo info) {
+        if (!info.getVideoOnlyStreams().isEmpty()) {
+            return false;
+        }
+        final List<VideoStream> videoStreams = info.getVideoStreams();
+        if (videoStreams.isEmpty()) {
+            // No video at all — either audio-only content or a hard extraction
+            // failure; nothing to "fix" by retrying for higher resolutions.
+            return false;
+        }
+        int maxHeight = 0;
+        for (final VideoStream vs : videoStreams) {
+            if (vs.getHeight() > maxHeight) {
+                maxHeight = vs.getHeight();
+            }
+        }
+        return maxHeight > 0 && maxHeight <= 360;
     }
 
     public static Single<ChannelInfo> getChannelInfo(final int serviceId, final String url,
