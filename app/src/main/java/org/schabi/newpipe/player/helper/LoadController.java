@@ -7,15 +7,11 @@ public class LoadController extends DefaultLoadControl {
 
     public static final String TAG = "LoadController";
 
-    // Aggressive preload to mask brief wifi hiccups (and avoid the black-screen
-    // spinner that used to appear when ExoPlayer's default ~50 s buffer drained).
-    // Time cap = 60 min; whichever of the time/byte caps hits first wins, so on
-    // 1080p video the byte cap is the real limit (~15 min) and on audio/low
-    // bitrate the time cap wins. largeHeap=true in the manifest gives room for
-    // this.
-    private static final int PRELOAD_MIN_BUFFER_MS = 60 * 60 * 1000;
-    private static final int PRELOAD_MAX_BUFFER_MS = 60 * 60 * 1000;
-    private static final int PRELOAD_TARGET_BUFFER_BYTES = 512 * 1024 * 1024;
+    // Keep more media ready than ExoPlayer's defaults, but do not let a single
+    // playing item reserve hundreds of MiB and push the UI into memory pressure.
+    private static final int PRELOAD_MIN_BUFFER_MS = 10 * 60 * 1000;
+    private static final int PRELOAD_MAX_BUFFER_MS = 10 * 60 * 1000;
+    private static final int PRELOAD_TARGET_BUFFER_BYTES = 128 * 1024 * 1024;
     private static final int PRELOAD_BUFFER_FOR_PLAYBACK_MS = 2500;
     private static final int PRELOAD_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5000;
 

@@ -23,12 +23,17 @@ import org.schabi.newpipe.views.AnimatedProgressBar;
 
 import java.util.concurrent.TimeUnit;
 
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
+import io.reactivex.rxjava3.disposables.Disposable;
+
 public class StreamMiniInfoItemHolder extends InfoItemHolder {
     public final ImageView itemThumbnailView;
     public final TextView itemVideoTitleView;
     public final TextView itemUploaderView;
     public final TextView itemDurationView;
     private final AnimatedProgressBar itemProgressView;
+    private Disposable streamStateDisposable;
+    private String boundStreamStateKey;
 
     StreamMiniInfoItemHolder(final InfoItemBuilder infoItemBuilder, final int layoutId,
                              final ViewGroup parent) {
@@ -72,27 +77,16 @@ public class StreamMiniInfoItemHolder extends InfoItemHolder {
                     R.color.duration_background_color));
             itemDurationView.setVisibility(View.VISIBLE);
 
-            StreamStateEntity state2 = null;
-            if (DependentPreferenceHelper
-                    .getPositionsInListsEnabled(itemProgressView.getContext())) {
-                state2 = historyRecordManager.loadStreamState(infoItem)
-                        .blockingGet()[0];
-            }
-            if (state2 != null) {
-                itemProgressView.setVisibility(View.VISIBLE);
-                itemProgressView.setMax((int) item.getDuration());
-                itemProgressView.setProgress((int) TimeUnit.MILLISECONDS
-                        .toSeconds(state2.getProgressMillis()));
-            } else {
-                itemProgressView.setVisibility(View.GONE);
-            }
+            loadStreamState(infoItem, item, historyRecordManager, false);
         } else if (StreamTypeUtil.isLiveStream(item.getStreamType())) {
+            clearStreamStateLoad();
             itemDurationView.setText(R.string.duration_live);
             itemDurationView.setBackgroundColor(ContextCompat.getColor(itemBuilder.getContext(),
                     R.color.live_duration_background_color));
             itemDurationView.setVisibility(View.VISIBLE);
             itemProgressView.setVisibility(View.GONE);
         } else {
+            clearStreamStateLoad();
             itemDurationView.setVisibility(View.GONE);
             itemProgressView.setVisibility(View.GONE);
         }
@@ -126,27 +120,72 @@ public class StreamMiniInfoItemHolder extends InfoItemHolder {
     public void updateState(final InfoItem infoItem,
                             final HistoryRecordManager historyRecordManager) {
         final StreamInfoItem item = (StreamInfoItem) infoItem;
+        loadStreamState(infoItem, item, historyRecordManager, true);
+    }
 
-        StreamStateEntity state = null;
-        if (DependentPreferenceHelper.getPositionsInListsEnabled(itemProgressView.getContext())) {
-            state = historyRecordManager
-                    .loadStreamState(infoItem)
-                    .blockingGet()[0];
+    @Override
+    public void clear() {
+        clearStreamStateLoad();
+    }
+
+    private void loadStreamState(final InfoItem infoItem,
+                                 final StreamInfoItem item,
+                                 final HistoryRecordManager historyRecordManager,
+                                 final boolean animate) {
+        clearStreamStateLoad();
+        if (!DependentPreferenceHelper.getPositionsInListsEnabled(itemProgressView.getContext())
+                || item.getDuration() <= 0
+                || StreamTypeUtil.isLiveStream(item.getStreamType())) {
+            updateProgress(item, null, animate);
+            return;
         }
+
+        boundStreamStateKey = streamStateKey(infoItem);
+        streamStateDisposable = historyRecordManager.loadStreamState(infoItem)
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(states -> {
+                    if (!streamStateKey(infoItem).equals(boundStreamStateKey)) {
+                        return;
+                    }
+                    updateProgress(item, states[0], animate);
+                }, throwable -> updateProgress(item, null, animate));
+    }
+
+    private void updateProgress(final StreamInfoItem item,
+                                final StreamStateEntity state,
+                                final boolean animate) {
         if (state != null && item.getDuration() > 0
                 && !StreamTypeUtil.isLiveStream(item.getStreamType())) {
             itemProgressView.setMax((int) item.getDuration());
-            if (itemProgressView.getVisibility() == View.VISIBLE) {
+            if (animate && itemProgressView.getVisibility() == View.VISIBLE) {
                 itemProgressView.setProgressAnimated((int) TimeUnit.MILLISECONDS
                         .toSeconds(state.getProgressMillis()));
             } else {
                 itemProgressView.setProgress((int) TimeUnit.MILLISECONDS
                         .toSeconds(state.getProgressMillis()));
-                ViewUtils.animate(itemProgressView, true, 500);
+                if (animate) {
+                    ViewUtils.animate(itemProgressView, true, 500);
+                } else {
+                    itemProgressView.setVisibility(View.VISIBLE);
+                }
             }
-        } else if (itemProgressView.getVisibility() == View.VISIBLE) {
+        } else if (animate && itemProgressView.getVisibility() == View.VISIBLE) {
             ViewUtils.animate(itemProgressView, false, 500);
+        } else {
+            itemProgressView.setVisibility(View.GONE);
         }
+    }
+
+    private void clearStreamStateLoad() {
+        if (streamStateDisposable != null) {
+            streamStateDisposable.dispose();
+            streamStateDisposable = null;
+        }
+        boundStreamStateKey = null;
+    }
+
+    private String streamStateKey(final InfoItem item) {
+        return item.getServiceId() + ":" + item.getUrl();
     }
 
     private void enableLongClick(final StreamInfoItem item) {
