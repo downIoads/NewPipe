@@ -8,10 +8,10 @@ public class LoadController extends DefaultLoadControl {
     public static final String TAG = "LoadController";
 
     // Keep more media ready than ExoPlayer's defaults, but do not let a single
-    // playing item reserve hundreds of MiB and push the UI into memory pressure.
+    // playing item reserve unbounded memory and push the UI into memory pressure.
     private static final int PRELOAD_MIN_BUFFER_MS = 10 * 60 * 1000;
     private static final int PRELOAD_MAX_BUFFER_MS = 10 * 60 * 1000;
-    private static final int PRELOAD_TARGET_BUFFER_BYTES = 128 * 1024 * 1024;
+    private static final int PRELOAD_TARGET_BUFFER_BYTES = 256 * 1024 * 1024;
     private static final int PRELOAD_BUFFER_FOR_PLAYBACK_MS = 2500;
     private static final int PRELOAD_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5000;
 
