@@ -29,7 +29,6 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.RecyclerView;
-import androidx.viewbinding.ViewBinding;
 
 import com.evernote.android.state.State;
 import org.reactivestreams.Subscriber;
@@ -69,6 +68,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
@@ -160,21 +160,28 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     }
 
     @Override
-    protected ViewBinding getListHeader() {
-        headerBinding = LocalPlaylistHeaderBinding.inflate(activity.getLayoutInflater(), itemsList,
-                false);
-        playlistControlBinding = headerBinding.playlistControl;
+    protected Supplier<View> getListHeaderSupplier() {
+        return () -> {
+            headerBinding = LocalPlaylistHeaderBinding.inflate(activity.getLayoutInflater(),
+                    itemsList, false);
+            playlistControlBinding = headerBinding.playlistControl;
 
-        headerBinding.playlistTitleView.setSelected(true);
+            headerBinding.playlistTitleView.setText(name);
+            headerBinding.playlistTitleView.setSelected(true);
+            headerBinding.playlistTitleView.setOnClickListener(view -> createRenameDialog());
 
-        return headerBinding;
+            if (itemListAdapter != null) {
+                setStreamCountAndOverallDuration(itemListAdapter.getItemsList());
+                initLocalPlaylistControls();
+            }
+
+            return headerBinding.getRoot();
+        };
     }
 
     @Override
     protected void initListeners() {
         super.initListeners();
-
-        headerBinding.playlistTitleView.setOnClickListener(view -> createRenameDialog());
 
         itemTouchHelper = new ItemTouchHelper(getItemTouchCallback());
         itemTouchHelper.attachToRecyclerView(itemsList);
@@ -896,6 +903,10 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     }
 
     private void initLocalPlaylistControls() {
+        if (playlistControlBinding == null) {
+            return;
+        }
+
         PlayButtonHelper.initPlaylistControlClickListener(activity, playlistControlBinding, this);
 
         playlistControlBinding.playlistCtrlPlayPopupText.setText(R.string.shuffle_all);

@@ -16,13 +16,14 @@ import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import androidx.viewbinding.ViewBinding;
 
 import org.schabi.newpipe.R;
 import org.schabi.newpipe.databinding.PignateFooterBinding;
 import org.schabi.newpipe.fragments.BaseStateFragment;
 import org.schabi.newpipe.fragments.list.ListViewContract;
 import org.schabi.newpipe.info_list.ItemViewMode;
+
+import java.util.function.Supplier;
 
 import static org.schabi.newpipe.ktx.ViewUtils.animate;
 import static org.schabi.newpipe.ktx.ViewUtils.animateHideRecyclerViewAllowingScrolling;
@@ -48,8 +49,6 @@ public abstract class BaseLocalListFragment<I, N> extends BaseStateFragment<I>
     //////////////////////////////////////////////////////////////////////////*/
 
     private static final int LIST_MODE_UPDATE_FLAG = 0x32;
-    private ViewBinding headerRootBinding;
-    private ViewBinding footerRootBinding;
     protected LocalItemListAdapter itemListAdapter;
     protected RecyclerView itemsList;
     private int updateFlags = 0;
@@ -100,12 +99,13 @@ public abstract class BaseLocalListFragment<I, N> extends BaseStateFragment<I>
     //////////////////////////////////////////////////////////////////////////*/
 
     @Nullable
-    protected ViewBinding getListHeader() {
+    protected Supplier<View> getListHeaderSupplier() {
         return null;
     }
 
-    protected ViewBinding getListFooter() {
-        return PignateFooterBinding.inflate(activity.getLayoutInflater(), itemsList, false);
+    protected Supplier<View> getListFooterSupplier() {
+        return () -> PignateFooterBinding.inflate(activity.getLayoutInflater(), itemsList, false)
+                .getRoot();
     }
 
     protected RecyclerView.LayoutManager getGridLayoutManager() {
@@ -131,12 +131,11 @@ public abstract class BaseLocalListFragment<I, N> extends BaseStateFragment<I>
         itemsList = rootView.findViewById(R.id.items_list);
         refreshItemViewMode();
 
-        headerRootBinding = getListHeader();
-        if (headerRootBinding != null) {
-            itemListAdapter.setHeader(headerRootBinding.getRoot());
+        final Supplier<View> listHeaderSupplier = getListHeaderSupplier();
+        if (listHeaderSupplier != null) {
+            itemListAdapter.setHeaderSupplier(listHeaderSupplier);
         }
-        footerRootBinding = getListFooter();
-        itemListAdapter.setFooter(footerRootBinding.getRoot());
+        itemListAdapter.setFooterSupplier(getListFooterSupplier());
 
         itemsList.setAdapter(itemListAdapter);
     }

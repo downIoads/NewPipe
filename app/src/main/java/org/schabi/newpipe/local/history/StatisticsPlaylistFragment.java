@@ -13,7 +13,6 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.viewbinding.ViewBinding;
 
 import com.evernote.android.state.State;
 import com.google.android.material.snackbar.Snackbar;
@@ -45,6 +44,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
@@ -126,12 +126,16 @@ public class StatisticsPlaylistFragment
     }
 
     @Override
-    protected ViewBinding getListHeader() {
-        headerBinding = StatisticPlaylistControlBinding.inflate(activity.getLayoutInflater(),
-                itemsList, false);
-        playlistControlBinding = headerBinding.playlistControl;
+    protected Supplier<View> getListHeaderSupplier() {
+        return () -> {
+            headerBinding = StatisticPlaylistControlBinding.inflate(activity.getLayoutInflater(),
+                    itemsList, false);
+            playlistControlBinding = headerBinding.playlistControl;
 
-        return headerBinding;
+            initHeaderControls();
+
+            return headerBinding.getRoot();
+        };
     }
 
     @Override
@@ -259,8 +263,6 @@ public class StatisticsPlaylistFragment
             return;
         }
 
-        playlistControlBinding.getRoot().setVisibility(View.VISIBLE);
-
         itemListAdapter.clearStreamItemList();
 
         if (result.isEmpty()) {
@@ -274,9 +276,7 @@ public class StatisticsPlaylistFragment
             itemsListState = null;
         }
 
-        PlayButtonHelper.initPlaylistControlClickListener(activity, playlistControlBinding, this);
-
-        headerBinding.sortButton.setOnClickListener(view -> toggleSortMode());
+        initHeaderControls();
 
         hideLoading();
     }
@@ -301,16 +301,38 @@ public class StatisticsPlaylistFragment
         if (sortMode == StatisticSortMode.LAST_PLAYED) {
             sortMode = StatisticSortMode.MOST_PLAYED;
             setTitle(getString(R.string.title_most_played));
-            headerBinding.sortButtonIcon.setImageResource(R.drawable.ic_history);
-            headerBinding.sortButtonText.setText(R.string.title_last_played);
         } else {
             sortMode = StatisticSortMode.LAST_PLAYED;
             setTitle(getString(R.string.title_last_played));
-            headerBinding.sortButtonIcon.setImageResource(
-                R.drawable.ic_filter_list);
-            headerBinding.sortButtonText.setText(R.string.title_most_played);
         }
+        updateSortButton();
         startLoading(true);
+    }
+
+    private void initHeaderControls() {
+        if (playlistControlBinding != null) {
+            playlistControlBinding.getRoot().setVisibility(View.VISIBLE);
+            PlayButtonHelper.initPlaylistControlClickListener(activity,
+                    playlistControlBinding, this);
+        }
+        if (headerBinding != null) {
+            headerBinding.sortButton.setOnClickListener(view -> toggleSortMode());
+            updateSortButton();
+        }
+    }
+
+    private void updateSortButton() {
+        if (headerBinding == null) {
+            return;
+        }
+        if (sortMode == StatisticSortMode.LAST_PLAYED) {
+            headerBinding.sortButtonIcon.setImageResource(
+                    R.drawable.ic_filter_list);
+            headerBinding.sortButtonText.setText(R.string.title_most_played);
+        } else {
+            headerBinding.sortButtonIcon.setImageResource(R.drawable.ic_history);
+            headerBinding.sortButtonText.setText(R.string.title_last_played);
+        }
     }
 
     private PlayQueue getPlayQueueStartingAt(final StreamStatisticsEntry infoItem) {
@@ -389,4 +411,3 @@ public class StatisticsPlaylistFragment
         MOST_PLAYED,
     }
 }
-
