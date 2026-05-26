@@ -22,6 +22,8 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.LayerDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -104,6 +106,7 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
 
     // other constants (TODO remove playback speeds and use normal menu for popup, too)
     private static final float[] PLAYBACK_SPEEDS = {0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f};
+    private static final int PLAYBACK_SEEKBAR_UNBUFFERED_COLOR = Color.rgb(96, 96, 96);
 
     private enum PlayButtonAction {
         PLAY, PAUSE, REPLAY
@@ -176,8 +179,7 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
 
         binding.playbackSeekBar.getThumb()
                 .setColorFilter(new PorterDuffColorFilter(Color.RED, PorterDuff.Mode.SRC_IN));
-        binding.playbackSeekBar.getProgressDrawable()
-                .setColorFilter(new PorterDuffColorFilter(Color.RED, PorterDuff.Mode.MULTIPLY));
+        tintPlaybackSeekBar();
 
         final ContextThemeWrapper themeWrapper = new ContextThemeWrapper(context,
                 R.style.DarkPopupMenu);
@@ -195,6 +197,30 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
 
         // Prevent hiding of bottom sheet via swipe inside queue
         binding.itemsList.setNestedScrollingEnabled(false);
+    }
+
+    private void tintPlaybackSeekBar() {
+        final Drawable progressDrawable = binding.playbackSeekBar.getProgressDrawable().mutate();
+        if (!(progressDrawable instanceof LayerDrawable)) {
+            progressDrawable.setColorFilter(new PorterDuffColorFilter(Color.RED,
+                    PorterDuff.Mode.MULTIPLY));
+            return;
+        }
+
+        final LayerDrawable layerDrawable = (LayerDrawable) progressDrawable;
+        tintSeekBarLayer(layerDrawable, android.R.id.background,
+                PLAYBACK_SEEKBAR_UNBUFFERED_COLOR);
+        tintSeekBarLayer(layerDrawable, android.R.id.secondaryProgress, Color.RED);
+        tintSeekBarLayer(layerDrawable, android.R.id.progress, Color.RED);
+    }
+
+    private void tintSeekBarLayer(final LayerDrawable layerDrawable,
+                                  final int layerId,
+                                  final int color) {
+        final Drawable layer = layerDrawable.findDrawableByLayerId(layerId);
+        if (layer != null) {
+            layer.setColorFilter(new PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN));
+        }
     }
 
     abstract BasePlayerGestureListener buildGestureListener();
