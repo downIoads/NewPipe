@@ -126,7 +126,7 @@ class FeedLoadManager(private val context: Context) {
             .runOn(Schedulers.io(), PARALLEL_EXTRACTIONS * 2)
             .filter { !cancelSignal.get() }
             .map { subscriptionEntity ->
-                loadStreams(subscriptionEntity, useFeedExtractor, defaultSharedPreferences)
+                loadStreamsWithRetries(subscriptionEntity, useFeedExtractor, defaultSharedPreferences)
             }
             .sequential()
             .observeOn(AndroidSchedulers.mainThread())
@@ -150,6 +150,37 @@ class FeedLoadManager(private val context: Context) {
                 maxProgress.get()
             )
         )
+    }
+
+    private fun loadStreamsWithRetries(
+        subscriptionEntity: SubscriptionEntity,
+        useFeedExtractor: Boolean,
+        defaultSharedPreferences: SharedPreferences
+    ): Notification<FeedUpdateInfo> {
+        var notification = loadStreams(
+            subscriptionEntity,
+            useFeedExtractor,
+            defaultSharedPreferences
+        )
+        var retryCount = 0
+
+        while (shouldRetry(notification) &&
+            retryCount < MAX_RETRY_COUNT &&
+            !cancelSignal.get()
+        ) {
+            retryCount++
+            notification = loadStreams(
+                subscriptionEntity,
+                useFeedExtractor,
+                defaultSharedPreferences
+            )
+        }
+
+        return notification
+    }
+
+    private fun shouldRetry(notification: Notification<FeedUpdateInfo>): Boolean {
+        return notification.isOnError || notification.value?.errors?.isNotEmpty() == true
     }
 
     private fun loadStreams(
@@ -366,5 +397,10 @@ class FeedLoadManager(private val context: Context) {
          * Number of items to buffer to mass-insert in the database.
          */
         private const val BUFFER_COUNT_BEFORE_INSERT = 20
+
+        /**
+         * How many times to retry loading a subscription after the first attempt failed.
+         */
+        private const val MAX_RETRY_COUNT = 2
     }
 }
