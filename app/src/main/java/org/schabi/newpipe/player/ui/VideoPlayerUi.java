@@ -550,10 +550,11 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
         if (player.getCurrentState() != STATE_PAUSED) {
             updatePlayBackElementsCurrentDuration(currentProgress);
         }
-        if (player.isLoading() || bufferPercent > 90) {
-            binding.playbackSeekBar.setSecondaryProgress(
-                    (int) (binding.playbackSeekBar.getMax() * ((float) bufferPercent / 100)));
-        }
+        // bufferPercent now includes on-disk prefetch progress (see Player#triggerProgressUpdate),
+        // which keeps growing even while the in-memory loader is idle (isLoading() == false), so we
+        // always reflect it rather than gating on isLoading().
+        binding.playbackSeekBar.setSecondaryProgress(
+                (int) (binding.playbackSeekBar.getMax() * ((float) bufferPercent / 100)));
         if (DEBUG && bufferPercent % 20 == 0) { //Limit log
             Log.d(TAG, "notifyProgressUpdateToListeners() called with: "
                     + "isVisible = " + isControlsVisible() + ", "

@@ -3,10 +3,13 @@ package org.schabi.newpipe.player.helper;
 import static org.schabi.newpipe.MainActivity.DEBUG;
 
 import android.content.Context;
+import android.net.Uri;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.google.android.exoplayer2.upstream.DataSpec;
 import com.google.android.exoplayer2.database.StandaloneDatabaseProvider;
 import com.google.android.exoplayer2.source.ProgressiveMediaSource;
 import com.google.android.exoplayer2.source.SingleSampleMediaSource;
@@ -20,17 +23,27 @@ import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DefaultDataSource;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
 import com.google.android.exoplayer2.upstream.TransferListener;
+import com.google.android.exoplayer2.upstream.cache.CacheSpan;
+import com.google.android.exoplayer2.upstream.cache.CacheWriter;
+import com.google.android.exoplayer2.upstream.cache.ContentMetadata;
 import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvictor;
 import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 
 import org.schabi.newpipe.DownloaderImpl;
+import org.schabi.newpipe.extractor.ServiceList;
 import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.YoutubeOtfDashManifestCreator;
 import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.YoutubePostLiveStreamDvrDashManifestCreator;
 import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.YoutubeProgressiveDashManifestCreator;
+import org.schabi.newpipe.extractor.stream.DeliveryMethod;
+import org.schabi.newpipe.extractor.stream.Stream;
+import org.schabi.newpipe.extractor.stream.StreamInfo;
 import org.schabi.newpipe.player.datasource.NonUriHlsDataSourceFactory;
 import org.schabi.newpipe.player.datasource.YoutubeHttpDataSource;
+import org.schabi.newpipe.player.resolver.PlaybackResolver;
 
 import java.io.File;
+import java.util.Locale;
+import java.util.NavigableSet;
 
 public class PlayerDataSource {
     public static final String TAG = PlayerDataSource.class.getSimpleName();
@@ -206,6 +219,186 @@ public class PlayerDataSource {
                 .setContinueLoadingCheckIntervalBytes(progressiveLoadIntervalBytes);
     }
     //endregion
+
+    /**
+     * Builds the cache key actually used to store/read a stream on disk. For YouTube
+     * (googlevideo.com) URLs the playback URL carries volatile {@code expire}/{@code sig} query
+     * params that change on every reload, so keying the cache by the raw URL (ExoPlayer's default
+     * for DASH segments) makes the cache miss across sessions and, worse, mismatches the stable
+     * key the prefetch would otherwise use. We therefore derive a stable key from the immutable
+     * {@code id} and {@code itag} params, so playback and the disk prefetch share one cache entry.
+     *
+     * @param uri         the stream URL being requested
+     * @param fallbackKey the key to use when the URL is not a recognised YouTube media URL
+     * @return a cache key that is stable across URL reloads for YouTube media
+     */
+    @NonNull
+    public static String stableCacheKey(@NonNull final Uri uri,
+                                        @Nullable final String fallbackKey) {
+        final String host = uri.getHost();
+        if (host != null && host.endsWith("googlevideo.com")) {
+            final String id = uri.getQueryParameter("id");
+            final String itag = uri.getQueryParameter("itag");
+            if (id != null && itag != null) {
+                return "yt:" + id + ":" + itag;
+            }
+        }
+        return fallbackKey != null ? fallbackKey : uri.toString();
+    }
+
+    /**
+     * @param info   the stream info
+     * @param stream the stream to be prefetched/played
+     * @return the on-disk cache key for the stream, matching what playback uses (see
+     * {@link #stableCacheKey})
+     */
+    @NonNull
+    public static String diskCacheKeyOf(@NonNull final StreamInfo info,
+                                        @NonNull final Stream stream) {
+        return stableCacheKey(Uri.parse(stream.getContent()),
+                PlaybackResolver.cacheKeyOf(info, stream));
+    }
+
+    @Nullable
+    public CacheWriter createDiskCacheWriter(@NonNull final StreamInfo info,
+                                             @NonNull final Stream stream) {
+        if (!stream.isUrl() || stream.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP) {
+            return null;
+        }
+
+        final CacheFactory factory = info.getService() == ServiceList.YouTube
+                ? ytProgressiveDashCacheDataSourceFactory : cacheDataSourceFactory;
+        final String key = PlaybackResolver.cacheKeyOf(info, stream);
+        final DataSpec dataSpec = new DataSpec.Builder()
+                .setUri(Uri.parse(stream.getContent()))
+                .setKey(key)
+                .setFlags(DataSpec.FLAG_ALLOW_CACHE_FRAGMENTATION)
+                .build();
+
+        // Disk-preload probe: log how far the whole-stream download has progressed. This is the
+        // only visibility into the CacheWriter, which runs independently of ExoPlayer's loader (so
+        // it never shows up in Player's "Load probe" logs). If bytesCached climbs toward
+        // requestLength but Player's "Disk cache probe" contiguous-from-0 stays flat/drops, the
+        // cache is too small and the LRU evictor is dropping the start to make room for the tail.
+        final String streamKind = stream.getClass().getSimpleName();
+        final CacheWriter.ProgressListener progressListener =
+                new CacheWriter.ProgressListener() {
+                    private long lastLoggedPercent = -1;
+
+                    @Override
+                    public void onProgress(final long requestLength, final long bytesCached,
+                                           final long newBytesCached) {
+                        if (requestLength <= 0) {
+                            return;
+                        }
+                        final long percent = 100L * bytesCached / requestLength;
+                        if (percent != lastLoggedPercent) {
+                            lastLoggedPercent = percent;
+                            Log.d(TAG, "Disk preload progress - " + streamKind + " " + percent
+                                    + "% (" + bytesCached + "/" + requestLength + " bytes)"
+                                    + " key=" + key);
+                        }
+                    }
+                };
+        return new CacheWriter(factory.createDataSource(), dataSpec, null, progressListener);
+    }
+
+    /**
+     * Returns how much of the stream identified by {@code key} is already present in the on-disk
+     * {@link SimpleCache}, as a fraction in [0, 1] of the contiguous bytes cached starting at the
+     * beginning of the stream. This reflects the on-disk prefetch progress (see
+     * {@link #createDiskCacheWriter}), which is independent from ExoPlayer's in-memory buffer that
+     * {@code SimpleExoPlayer#getBufferedPercentage()} exposes.
+     *
+     * @param key the cache key of the stream (see {@code PlaybackResolver#cacheKeyOf})
+     * @return the contiguously-cached fraction in [0, 1], or 0 if unknown / nothing cached
+     */
+    public static float getDiskCacheProgress(@NonNull final String key) {
+        final SimpleCache currentCache = cache;
+        if (currentCache == null) {
+            return 0f;
+        }
+        final long contentLength =
+                ContentMetadata.getContentLength(currentCache.getContentMetadata(key));
+        if (contentLength <= 0) {
+            return 0f;
+        }
+        // getCachedLength returns the length of contiguously cached data from position 0, or the
+        // negated length of the hole if position 0 is not cached yet.
+        final long contiguousFromStart = currentCache.getCachedLength(key, 0, contentLength);
+        if (contiguousFromStart <= 0) {
+            return 0f;
+        }
+        return Math.min(1f, (float) contiguousFromStart / contentLength);
+    }
+
+    /**
+     * Builds a human-readable description of the on-disk cached byte ranges for {@code key},
+     * mapped onto the playback timeline (assuming a constant byte-rate, which is good enough for a
+     * progress probe). Produces e.g. {@code [0:00..5:12],[7:30..28:48] covered=81% ranges=2}.
+     *
+     * @param key        the cache key of the stream
+     * @param durationMs the playback duration of the stream in milliseconds
+     * @return a description of the cached time ranges, or a short status string if unavailable
+     */
+    @NonNull
+    public static String describeDiskCacheRanges(@NonNull final String key, final long durationMs) {
+        final SimpleCache currentCache = cache;
+        if (currentCache == null) {
+            return "cache=null";
+        }
+        final long len = ContentMetadata.getContentLength(currentCache.getContentMetadata(key));
+        if (len <= 0 || durationMs <= 0) {
+            return "len/duration=unknown";
+        }
+        final NavigableSet<CacheSpan> spans = currentCache.getCachedSpans(key);
+        if (spans == null || spans.isEmpty()) {
+            return "empty";
+        }
+
+        final StringBuilder sb = new StringBuilder();
+        long cachedBytes = 0;
+        long rangeStartByte = -1;
+        long prevEndByte = -1;
+        int rangeCount = 0;
+        for (final CacheSpan span : spans) {
+            if (span.position < 0 || span.length <= 0) {
+                continue;
+            }
+            cachedBytes += span.length;
+            if (rangeStartByte < 0) {
+                rangeStartByte = span.position;
+            } else if (span.position > prevEndByte) {
+                appendByteRangeAsTime(sb, rangeStartByte, prevEndByte, len, durationMs);
+                rangeCount++;
+                rangeStartByte = span.position;
+            }
+            prevEndByte = span.position + span.length;
+        }
+        if (rangeStartByte >= 0) {
+            appendByteRangeAsTime(sb, rangeStartByte, prevEndByte, len, durationMs);
+            rangeCount++;
+        }
+        return sb + " covered=" + (100 * cachedBytes / len) + "% ranges=" + rangeCount;
+    }
+
+    private static void appendByteRangeAsTime(final StringBuilder sb, final long startByte,
+                                              final long endByte, final long len,
+                                              final long durationMs) {
+        if (sb.length() > 0) {
+            sb.append(',');
+        }
+        sb.append('[')
+                .append(formatTime(startByte * durationMs / len))
+                .append("..")
+                .append(formatTime(endByte * durationMs / len))
+                .append(']');
+    }
+
+    private static String formatTime(final long ms) {
+        final long totalSec = Math.max(0, ms) / 1000;
+        return String.format(Locale.US, "%d:%02d", totalSec / 60, totalSec % 60);
+    }
 
 
     //region Static methods

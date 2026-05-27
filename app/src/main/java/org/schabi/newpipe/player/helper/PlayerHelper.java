@@ -280,7 +280,7 @@ public final class PlayerHelper {
     }
 
     public static long getPreferredCacheSize() {
-        return 64 * 1024 * 1024L;
+        return 1024 * 1024 * 1024L;
     }
 
     public static long getPreferredFileSize() {

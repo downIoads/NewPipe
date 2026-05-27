@@ -7,11 +7,17 @@ public class LoadController extends DefaultLoadControl {
 
     public static final String TAG = "LoadController";
 
-    // Keep more media ready than ExoPlayer's defaults, but do not let a single
-    // playing item reserve unbounded memory and push the UI into memory pressure.
-    private static final int PRELOAD_MIN_BUFFER_MS = 10 * 60 * 1000;
-    private static final int PRELOAD_MAX_BUFFER_MS = 10 * 60 * 1000;
-    private static final int PRELOAD_TARGET_BUFFER_BYTES = 256 * 1024 * 1024;
+    private static final int MAX_CONFIGURED_SEEK_MS = 30 * 1000;
+    private static final int SEEK_MEMORY_MARGIN_MS = 1000;
+    private static final int SMOOTH_PLAYBACK_AHEAD_MS = 60 * 1000;
+
+    // Keep a rolling in-memory window around the playhead. The full stream is
+    // cached separately on disk; ExoPlayer sample queues only retain enough for
+    // instant double-tap seeks and smooth playback.
+    private static final int SEEK_RETAIN_MS = MAX_CONFIGURED_SEEK_MS + SEEK_MEMORY_MARGIN_MS;
+    private static final int PRELOAD_MIN_BUFFER_MS = SEEK_RETAIN_MS + SMOOTH_PLAYBACK_AHEAD_MS;
+    private static final int PRELOAD_MAX_BUFFER_MS = SEEK_RETAIN_MS + SMOOTH_PLAYBACK_AHEAD_MS;
+    private static final int PRELOAD_TARGET_BUFFER_BYTES = 96 * 1024 * 1024;
     private static final int PRELOAD_BUFFER_FOR_PLAYBACK_MS = 2500;
     private static final int PRELOAD_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5000;
 
@@ -25,8 +31,8 @@ public class LoadController extends DefaultLoadControl {
                 PRELOAD_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
                 PRELOAD_TARGET_BUFFER_BYTES,
                 /* prioritizeTimeOverSizeThresholds = */ false,
-                DefaultLoadControl.DEFAULT_BACK_BUFFER_DURATION_MS,
-                DefaultLoadControl.DEFAULT_RETAIN_BACK_BUFFER_FROM_KEYFRAME);
+                SEEK_RETAIN_MS,
+                /* retainBackBufferFromKeyframe = */ false);
     }
 
     @Override
@@ -60,5 +66,13 @@ public class LoadController extends DefaultLoadControl {
 
     public void disablePreloadingOfCurrentTrack() {
         preloadingEnabled = false;
+    }
+
+    /**
+     * @return the amount of back-buffer (in ms) ExoPlayer is asked to retain behind the playhead,
+     * used to approximate the start of the in-memory window for logging.
+     */
+    public static int getSeekRetainMs() {
+        return SEEK_RETAIN_MS;
     }
 }

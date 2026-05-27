@@ -1,6 +1,7 @@
 package org.schabi.newpipe.player.helper;
 
 import android.content.Context;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 
@@ -10,10 +11,13 @@ import com.google.android.exoplayer2.upstream.FileDataSource;
 import com.google.android.exoplayer2.upstream.TransferListener;
 import com.google.android.exoplayer2.upstream.cache.CacheDataSink;
 import com.google.android.exoplayer2.upstream.cache.CacheDataSource;
+import com.google.android.exoplayer2.upstream.cache.CacheKeyFactory;
 import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 
 final class CacheFactory implements DataSource.Factory {
-    private static final int CACHE_FLAGS = CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR;
+    private static final String TAG = "CacheFactory";
+    private static final int CACHE_FLAGS = CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
+            | CacheDataSource.FLAG_BLOCK_ON_CACHE;
 
     private final Context context;
     private final TransferListener transferListener;
@@ -32,7 +36,9 @@ final class CacheFactory implements DataSource.Factory {
 
     @NonNull
     @Override
-    public DataSource createDataSource() {
+    public CacheDataSource createDataSource() {
+        Log.d(TAG, "Cache probe - createDataSource() called (a player/preload pipeline is "
+                + "requesting a cache-backed source)");
         final DefaultDataSource dataSource = new DefaultDataSource.Factory(context,
                 upstreamDataSourceFactory)
                 .setTransferListener(transferListener)
@@ -41,6 +47,26 @@ final class CacheFactory implements DataSource.Factory {
         final FileDataSource fileSource = new FileDataSource();
         final CacheDataSink dataSink =
                 new CacheDataSink(cache, PlayerHelper.getPreferredFileSize());
-        return new CacheDataSource(cache, dataSource, fileSource, dataSink, CACHE_FLAGS, null);
+        // Cache probe: tells us definitively whether a read was served from the on-disk cache or
+        // had to go upstream to the network. Pair with Player's "Load probe"/"Seek probe" logs to
+        // see whether a (double-tap) seek required any actual fetching.
+        final CacheDataSource.EventListener eventListener = new CacheDataSource.EventListener() {
+            @Override
+            public void onCachedBytesRead(final long cacheSizeBytes, final long cachedBytesRead) {
+                Log.d(TAG, "Cache probe - served from DISK cache: cachedBytesRead="
+                        + cachedBytesRead + " totalCacheSize=" + cacheSizeBytes);
+            }
+
+            @Override
+            public void onCacheIgnored(final int reason) {
+                Log.w(TAG, "Cache probe - cache IGNORED (going upstream/network) reason=" + reason);
+            }
+        };
+        // Use a stable cache key (see PlayerDataSource#stableCacheKey) so YouTube playback and the
+        // disk prefetch share a single cache entry instead of keying by the volatile playback URL.
+        final CacheKeyFactory keyFactory = dataSpec ->
+                PlayerDataSource.stableCacheKey(dataSpec.uri, dataSpec.key);
+        return new CacheDataSource(cache, dataSource, fileSource, dataSink, CACHE_FLAGS,
+                eventListener, keyFactory);
     }
 }

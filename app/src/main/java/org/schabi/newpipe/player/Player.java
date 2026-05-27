@@ -78,11 +78,14 @@ import com.google.android.exoplayer2.Tracks;
 import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector;
 import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
 import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
+import com.google.android.exoplayer2.source.LoadEventInfo;
+import com.google.android.exoplayer2.source.MediaLoadData;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.text.CueGroup;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.trackselection.MappingTrackSelector;
 import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
+import com.google.android.exoplayer2.upstream.cache.CacheWriter;
 import com.google.android.exoplayer2.video.VideoSize;
 import com.squareup.picasso.Picasso;
 import com.squareup.picasso.Target;
@@ -95,6 +98,7 @@ import org.schabi.newpipe.error.ErrorUtil;
 import org.schabi.newpipe.error.UserAction;
 import org.schabi.newpipe.extractor.Image;
 import org.schabi.newpipe.extractor.stream.AudioStream;
+import org.schabi.newpipe.extractor.stream.Stream;
 import org.schabi.newpipe.extractor.stream.StreamInfo;
 import org.schabi.newpipe.extractor.stream.StreamType;
 import org.schabi.newpipe.extractor.stream.VideoStream;
@@ -136,14 +140,18 @@ import org.schabi.newpipe.util.SerializedCache;
 import org.schabi.newpipe.util.StreamTypeUtil;
 import org.schabi.newpipe.util.image.PicassoHelper;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
+import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Single;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
@@ -228,6 +236,8 @@ public final class Player implements PlaybackListener, Listener {
     private final DefaultRenderersFactory renderFactory;
 
     @NonNull
+    private final PlayerDataSource dataSource;
+    @NonNull
     private final VideoPlaybackResolver videoResolver;
     @NonNull
     private final AudioPlaybackResolver audioResolver;
@@ -269,6 +279,23 @@ public final class Player implements PlaybackListener, Listener {
 
     @NonNull
     private final SerialDisposable progressUpdateDisposable = new SerialDisposable();
+    @NonNull
+    private final SerialDisposable diskCachePreloadDisposable = new SerialDisposable();
+    // Cache key of the stream backing the seekbar timeline (the video stream, or audio for
+    // audio-only playback). Used to surface on-disk prefetch progress as the secondary seekbar.
+    @Nullable
+    private String diskPreloadProgressKey;
+    // elapsedRealtime when the last user seek was issued, to measure perceived seek latency.
+    private long seekProbeStartMs = -1L;
+    // elapsedRealtime of the last "State probe" log, to throttle it to ~1 Hz.
+    private long lastStateProbeMs = 0L;
+
+    // adb-triggerable debug control actions (only registered/handled in DEBUG builds).
+    private static final String DEBUG_ACTION_SEEK_TO = "org.schabi.newpipe.debug.player.SEEK_TO";
+    private static final String DEBUG_ACTION_SEEK_BY = "org.schabi.newpipe.debug.player.SEEK_BY";
+    private static final String DEBUG_ACTION_PLAY = "org.schabi.newpipe.debug.player.PLAY";
+    private static final String DEBUG_ACTION_PAUSE = "org.schabi.newpipe.debug.player.PAUSE";
+    private static final String DEBUG_ACTION_STATE = "org.schabi.newpipe.debug.player.STATE";
     @NonNull
     private final CompositeDisposable databaseUpdateDisposable = new CompositeDisposable();
     @NonNull
@@ -337,6 +364,55 @@ public final class Player implements PlaybackListener, Listener {
                         + ", url=" + getVideoUrl());
             }
         }
+
+        @Override
+        public void onLoadStarted(@NonNull final EventTime eventTime,
+                                  @NonNull final LoadEventInfo loadEventInfo,
+                                  @NonNull final MediaLoadData mediaLoadData) {
+            // A load started: the requested range was NOT already resident in ExoPlayer's sample
+            // queue and had to be fetched (from the on-disk cache and/or network - see the
+            // "Cache probe" logs in CacheFactory to tell which). If this fires right after a seek,
+            // the seek target was not in memory.
+            final long sinceSeek = seekProbeStartMs < 0 ? -1
+                    : SystemClock.elapsedRealtime() - seekProbeStartMs;
+            Log.d(TAG, "Load probe - LOAD STARTED bytePos=" + loadEventInfo.dataSpec.position
+                    + " byteLen=" + loadEventInfo.dataSpec.length
+                    + " trackType=" + mediaLoadData.trackType
+                    + " mediaStartMs=" + mediaLoadData.mediaStartTimeMs
+                    + " msSinceLastSeek=" + sinceSeek
+                    // If this dataSpec key differs from the preload key ("Disk preload progress"
+                    // log), playback and preload cache under different keys -> playback never hits
+                    // the prefetched bytes and the file gets cached twice.
+                    + " dataSpecKey=" + loadEventInfo.dataSpec.key);
+        }
+
+        @Override
+        public void onLoadCompleted(@NonNull final EventTime eventTime,
+                                    @NonNull final LoadEventInfo loadEventInfo,
+                                    @NonNull final MediaLoadData mediaLoadData) {
+            // Throughput alone cannot tell disk from network here: YouTube serves the first MB or
+            // so of each range request unthrottled, so a small DASH chunk fetched from the network
+            // arrives as fast as one read from disk. The authoritative cache-hit signal is
+            // CacheFactory's "served from DISK cache" (onCachedBytesRead) line.
+            final long ms = Math.max(1, loadEventInfo.loadDurationMs);
+            final long mbPerSec = loadEventInfo.bytesLoaded * 1000L / ms / (1024 * 1024);
+            Log.d(TAG, "Load probe - load completed bytesLoaded=" + loadEventInfo.bytesLoaded
+                    + " loadDurationMs=" + loadEventInfo.loadDurationMs
+                    + " ~" + mbPerSec + "MB/s"
+                    + " bytePos=" + loadEventInfo.dataSpec.position);
+        }
+
+        @Override
+        public void onRenderedFirstFrame(@NonNull final EventTime eventTime,
+                                         @NonNull final Object output,
+                                         final long renderTimeMs) {
+            if (seekProbeStartMs >= 0) {
+                Log.d(TAG, "Seek probe - first frame rendered "
+                        + (SystemClock.elapsedRealtime() - seekProbeStartMs)
+                        + "ms after seek (this is the perceived double-tap wait)");
+                seekProbeStartMs = -1L;
+            }
+        }
     };
 
     private static final int AUDIO_PREAMP_MIN_DB = -50;
@@ -379,7 +455,7 @@ public final class Player implements PlaybackListener, Listener {
         updateAudioPreampFromPrefs();
 
         trackSelector = new DefaultTrackSelector(context, PlayerHelper.getQualitySelector());
-        final PlayerDataSource dataSource = new PlayerDataSource(context,
+        dataSource = new PlayerDataSource(context,
                 new DefaultBandwidthMeter.Builder(context).build());
         loadController = new LoadController();
 
@@ -777,6 +853,7 @@ public final class Player implements PlaybackListener, Listener {
                 + "exoPlayerNull=" + exoPlayerIsNull()
                 + " currentState=" + currentState);
         UIs.call(PlayerUi::destroyPlayer);
+        diskCachePreloadDisposable.set(null);
 
         if (!exoPlayerIsNull()) {
             simpleExoPlayer.removeAnalyticsListener(lagProbeAnalyticsListener);
@@ -817,6 +894,7 @@ public final class Player implements PlaybackListener, Listener {
 
         databaseUpdateDisposable.clear();
         progressUpdateDisposable.set(null);
+        diskCachePreloadDisposable.set(null);
         streamItemDisposable.clear();
         cancelLoadingCurrentThumbnail();
 
@@ -919,6 +997,20 @@ public final class Player implements PlaybackListener, Listener {
         intentFilter.addAction(Intent.ACTION_SCREEN_ON);
         intentFilter.addAction(Intent.ACTION_SCREEN_OFF);
         intentFilter.addAction(Intent.ACTION_HEADSET_PLUG);
+
+        if (DEBUG) {
+            // adb-triggerable debug controls, e.g.:
+            //   adb shell am broadcast -a org.schabi.newpipe.debug.player.SEEK_TO --el ms 90000
+            //   adb shell am broadcast -a org.schabi.newpipe.debug.player.SEEK_BY --el ms -10000
+            //   adb shell am broadcast -a org.schabi.newpipe.debug.player.PLAY
+            //   adb shell am broadcast -a org.schabi.newpipe.debug.player.PAUSE
+            //   adb shell am broadcast -a org.schabi.newpipe.debug.player.STATE
+            intentFilter.addAction(DEBUG_ACTION_SEEK_TO);
+            intentFilter.addAction(DEBUG_ACTION_SEEK_BY);
+            intentFilter.addAction(DEBUG_ACTION_PLAY);
+            intentFilter.addAction(DEBUG_ACTION_PAUSE);
+            intentFilter.addAction(DEBUG_ACTION_STATE);
+        }
     }
 
     private void onBroadcastReceived(final Intent intent) {
@@ -961,6 +1053,39 @@ public final class Player implements PlaybackListener, Listener {
             case Intent.ACTION_CONFIGURATION_CHANGED:
                 if (DEBUG) {
                     Log.d(TAG, "ACTION_CONFIGURATION_CHANGED received");
+                }
+                break;
+            case DEBUG_ACTION_SEEK_TO:
+                if (DEBUG && !exoPlayerIsNull()) {
+                    seekTo(intent.getLongExtra("ms", 0L));
+                }
+                break;
+            case DEBUG_ACTION_SEEK_BY:
+                if (DEBUG && !exoPlayerIsNull()) {
+                    seekBy(intent.getLongExtra("ms", 0L));
+                }
+                break;
+            case DEBUG_ACTION_PLAY:
+                if (DEBUG) {
+                    play();
+                }
+                break;
+            case DEBUG_ACTION_PAUSE:
+                if (DEBUG) {
+                    pause();
+                }
+                break;
+            case DEBUG_ACTION_STATE:
+                if (DEBUG && !exoPlayerIsNull()) {
+                    // Bypass the 1 Hz throttle so the state is logged immediately on request.
+                    lastStateProbeMs = 0L;
+                    final String stateKey = diskPreloadProgressKey;
+                    if (stateKey != null) {
+                        logPlaybackStateProbe(stateKey);
+                    } else {
+                        Log.d(TAG, "State probe - no disk preload key yet (playhead="
+                                + formatProbeTime(simpleExoPlayer.getCurrentPosition()) + ")");
+                    }
                 }
                 break;
         }
@@ -1143,8 +1268,22 @@ public final class Player implements PlaybackListener, Listener {
             return;
         }
 
+        // The secondary (red) seekbar should reflect everything that can be played back instantly:
+        // ExoPlayer's in-memory buffer AND the bytes already prefetched to the on-disk cache. The
+        // in-memory buffer is capped by LoadController (~90s ahead), so on a long video only the
+        // on-disk progress can grow the bar to 100%.
+        int bufferPercent = simpleExoPlayer.getBufferedPercentage();
+        final String key = diskPreloadProgressKey;
+        if (key != null) {
+            final int diskPercent = Math.round(PlayerDataSource.getDiskCacheProgress(key) * 100);
+            logPlaybackStateProbe(key);
+            if (diskPercent > bufferPercent) {
+                bufferPercent = diskPercent;
+            }
+        }
+
         onUpdateProgress(Math.max((int) simpleExoPlayer.getCurrentPosition(), 0),
-                (int) simpleExoPlayer.getDuration(), simpleExoPlayer.getBufferedPercentage());
+                (int) simpleExoPlayer.getDuration(), bufferPercent);
 
         // Heartbeat while stuck buffering: if we've been buffering for over 5 seconds and every
         // 5 seconds thereafter, log a probe so a stuck spinner is diagnosable from logcat.
@@ -1163,6 +1302,47 @@ public final class Player implements PlaybackListener, Listener {
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(ignored -> triggerProgressUpdate(),
                         error -> Log.e(TAG, "Progress update failure: ", error));
+    }
+
+    /**
+     * Emits, at most once per second, a single line summarising the whole cache picture so it can
+     * be verified from logcat:
+     * <ul>
+     *     <li>the current player position (playhead),</li>
+     *     <li>the in-memory buffered window (what can be seeked to without any load),</li>
+     *     <li>the on-disk cached time ranges (what the prefetch holds).</li>
+     * </ul>
+     * Watching consecutive lines shows the in-memory window slide forward as playback advances and
+     * as samples are read from the on-disk cache (paired with the "Cache probe" lines from
+     * CacheFactory, which fire when a load is actually served from disk rather than the network).
+     *
+     * @param key the cache key of the stream backing the seekbar timeline
+     */
+    private void logPlaybackStateProbe(@NonNull final String key) {
+        final long now = SystemClock.elapsedRealtime();
+        if (now - lastStateProbeMs < 1000L) {
+            return;
+        }
+        lastStateProbeMs = now;
+
+        final long durationMs = simpleExoPlayer.getDuration();
+        final long playheadMs = Math.max(0, simpleExoPlayer.getCurrentPosition());
+        final long memoryEndMs = simpleExoPlayer.getBufferedPosition();
+        // ExoPlayer does not expose the start of the retained sample queue; it keeps roughly
+        // LoadController.SEEK_RETAIN_MS of back-buffer, so approximate the window start with that.
+        final long memoryStartMs = Math.max(0, playheadMs - LoadController.getSeekRetainMs());
+
+        Log.d(TAG, "State probe - playhead=" + formatProbeTime(playheadMs)
+                + " | memory~[" + formatProbeTime(memoryStartMs)
+                + ".." + formatProbeTime(memoryEndMs) + "]"
+                + " aheadMs=" + (memoryEndMs - playheadMs)
+                + " | disk=" + PlayerDataSource.describeDiskCacheRanges(key, durationMs)
+                + " | duration=" + formatProbeTime(durationMs));
+    }
+
+    private static String formatProbeTime(final long ms) {
+        final long totalSec = Math.max(0, ms) / 1000;
+        return totalSec / 60 + ":" + String.format(Locale.US, "%02d", totalSec % 60);
     }
 
     //endregion
@@ -1717,15 +1897,105 @@ public final class Player implements PlaybackListener, Listener {
                 if (previousInfo == null || !previousInfo.getUrl().equals(info.getUrl())) {
                     // only update with the new stream info if it has actually changed
                     updateMetadataWith(info);
+                    startDiskCachePreload(currentMetadata);
                 } else if (previousAudioTrack == null
                         || tag.getMaybeAudioTrack()
                         .map(t -> t.getSelectedAudioStreamIndex()
                                 != previousAudioTrack.getSelectedAudioStreamIndex())
                         .orElse(false)) {
                     notifyAudioTrackUpdateToListeners();
+                    startDiskCachePreload(currentMetadata);
                 }
             });
         });
+    }
+
+    private void startDiskCachePreload(@NonNull final MediaItemTag tag) {
+        diskCachePreloadDisposable.set(null);
+
+        if (StreamTypeUtil.isLiveStream(tag.getStreamType())) {
+            return;
+        }
+
+        final Optional<StreamInfo> maybeInfo = tag.getMaybeStreamInfo();
+        if (maybeInfo.isEmpty()) {
+            return;
+        }
+
+        final StreamInfo info = maybeInfo.get();
+        final List<Stream> streams = getStreamsToDiskPreload(tag);
+        if (streams.isEmpty()) {
+            return;
+        }
+
+        // The first stream (video when present, otherwise audio) drives the seekbar timeline, so
+        // its on-disk prefetch progress is what we surface as the secondary (red) seekbar. Use the
+        // same stable key playback uses, so the progress reflects the shared cache entry.
+        diskPreloadProgressKey = PlayerDataSource.diskCacheKeyOf(info, streams.get(0));
+
+        final AtomicBoolean cancelled = new AtomicBoolean(false);
+        final AtomicReference<CacheWriter> activeWriter = new AtomicReference<>();
+        final Disposable disposable = Completable.fromAction(() -> {
+                    for (final Stream stream : streams) {
+                        if (cancelled.get()) {
+                            return;
+                        }
+
+                        final CacheWriter writer = dataSource.createDiskCacheWriter(info, stream);
+                        if (writer == null) {
+                            continue;
+                        }
+
+                        activeWriter.set(writer);
+                        Log.d(TAG, "Disk preload - start stream=" + stream.getClass()
+                                .getSimpleName() + " title=" + info.getName());
+                        writer.cache();
+                        activeWriter.compareAndSet(writer, null);
+                    }
+                })
+                .subscribeOn(Schedulers.io())
+                .doOnDispose(() -> {
+                    cancelled.set(true);
+                    final CacheWriter writer = activeWriter.getAndSet(null);
+                    if (writer != null) {
+                        writer.cancel();
+                    }
+                })
+                .subscribe(
+                        () -> Log.d(TAG, "Disk preload - complete title=" + info.getName()),
+                        error -> {
+                            if (!cancelled.get()) {
+                                Log.w(TAG, "Disk preload - failed title=" + info.getName(),
+                                        error);
+                            }
+                        });
+        diskCachePreloadDisposable.set(disposable);
+    }
+
+    @NonNull
+    private List<Stream> getStreamsToDiskPreload(@NonNull final MediaItemTag tag) {
+        final List<Stream> streams = new ArrayList<>(2);
+        final VideoStream video = tag.getMaybeQuality()
+                .map(MediaItemTag.Quality::getSelectedVideoStream)
+                .orElse(null);
+        final AudioStream audio = tag.getMaybeAudioTrack()
+                .map(MediaItemTag.AudioTrack::getSelectedAudioStream)
+                .orElse(null);
+
+        if (video != null) {
+            streams.add(video);
+        }
+
+        final boolean audioIsUsedForPlayback = video == null
+                || video.isVideoOnly()
+                || videoResolver.getStreamSourceType()
+                .map(type -> type == SourceType.VIDEO_WITH_SEPARATED_AUDIO)
+                .orElse(false);
+        if (audio != null && audioIsUsedForPlayback) {
+            streams.add(audio);
+        }
+
+        return streams;
     }
 
     @Override
@@ -2065,8 +2335,27 @@ public final class Player implements PlaybackListener, Listener {
         }
         if (!exoPlayerIsNull()) {
             // prevent invalid positions when fast-forwarding/-rewinding
-            simpleExoPlayer.seekTo(MathUtils.clamp(positionMillis, 0,
-                    simpleExoPlayer.getDuration()));
+            final long target = MathUtils.clamp(positionMillis, 0, simpleExoPlayer.getDuration());
+
+            // Seek probe: record where we are relative to the in-memory buffer and on-disk cache so
+            // a subsequent load (or absence of one) tells us whether the seek target was already
+            // resident in memory/disk or required fetching. The matching "first frame" log below
+            // measures the perceived latency.
+            seekProbeStartMs = SystemClock.elapsedRealtime();
+            final long bufferedAheadMs = simpleExoPlayer.getBufferedPosition()
+                    - simpleExoPlayer.getCurrentPosition();
+            final String key = diskPreloadProgressKey;
+            final int diskPercent = key == null ? -1
+                    : Math.round(PlayerDataSource.getDiskCacheProgress(key) * 100);
+            Log.d(TAG, "Seek probe - seekTo target=" + target + "ms"
+                    + " from=" + simpleExoPlayer.getCurrentPosition() + "ms"
+                    + " offset=" + (target - simpleExoPlayer.getCurrentPosition()) + "ms"
+                    + " inMemoryBufferedAhead=" + bufferedAheadMs + "ms"
+                    + " inMemoryBufferedPos=" + simpleExoPlayer.getBufferedPosition() + "ms"
+                    + " diskCached=" + diskPercent + "%"
+                    + " seekParams=" + PlayerHelper.getSeekParameters(context));
+
+            simpleExoPlayer.seekTo(target);
         }
     }
 
