@@ -37,6 +37,7 @@ import org.schabi.newpipe.R;
 import org.schabi.newpipe.DownloaderImpl;
 import org.schabi.newpipe.extractor.Info;
 import org.schabi.newpipe.extractor.InfoItem;
+// import org.schabi.newpipe.App; // only needed by the commented-out debug logging below
 import org.schabi.newpipe.extractor.ListExtractor.InfoItemsPage;
 import org.schabi.newpipe.extractor.MetaInfo;
 import org.schabi.newpipe.extractor.NewPipe;
@@ -152,11 +153,42 @@ public final class ExtractorHelper {
                 InfoCache.Type.STREAM, loadFromNetwork);
 
         if (serviceId == ServiceList.YouTube.getServiceId()) {
-            return result.flatMap(info ->
-                    retryYoutubeStreamInfoIfDegraded(serviceId, url, info, 0));
+            return result.flatMap(info -> {
+                // Debug logging used to diagnose the SABR / degraded-stream issue. It logged
+                // every getStreamInfo result (incl. cache hits) to reveal the degraded-retry
+                // amplification. Commented out but kept for future use.
+                // PersistentPlayerLogger.log(App.getApp(), "ExtractorHelper.getStreamInfo.result "
+                //         + "thread=" + Thread.currentThread().getName()
+                //         + " forceLoad=" + forceLoad + " " + streamInfoSummary(info));
+                return retryYoutubeStreamInfoIfDegraded(serviceId, url, info, 0);
+            });
         }
         return result;
     }
+
+    // Debug helper used to diagnose the SABR / degraded-stream issue. Commented out but kept
+    // for future use (re-enable together with the PersistentPlayerLogger calls above/below).
+    /*
+    @NonNull
+    private static String streamInfoSummary(@NonNull final StreamInfo info) {
+        final StringBuilder videoOnly = new StringBuilder();
+        for (final VideoStream vs : info.getVideoOnlyStreams()) {
+            videoOnly.append(vs.getItagItem() == null ? "?" : vs.getItagItem().id)
+                    .append('@').append(vs.getHeight()).append(' ');
+        }
+        final StringBuilder video = new StringBuilder();
+        for (final VideoStream vs : info.getVideoStreams()) {
+            video.append(vs.getItagItem() == null ? "?" : vs.getItagItem().id)
+                    .append('@').append(vs.getHeight()).append(' ');
+        }
+        return "degraded=" + isStreamInfoLikelyDegraded(info)
+                + " audio=" + info.getAudioStreams().size()
+                + " video=" + info.getVideoStreams().size()
+                + " videoOnly=" + info.getVideoOnlyStreams().size()
+                + " videoItags=[" + video.toString().trim() + "]"
+                + " videoOnlyItags=[" + videoOnly.toString().trim() + "]";
+    }
+    */
 
     // Maximum number of automatic retries when a YouTube StreamInfo looks
     // degraded (only legacy <=360p formats, no adaptive video-only streams).
@@ -170,12 +202,24 @@ public final class ExtractorHelper {
             @NonNull final StreamInfo info,
             final int attempt) {
         if (attempt >= MAX_DEGRADED_YOUTUBE_RETRIES || !isStreamInfoLikelyDegraded(info)) {
+            // Debug logging (kept for future use):
+            // PersistentPlayerLogger.log(App.getApp(), "ExtractorHelper.degradedRetry.stop "
+            //         + "attempt=" + attempt + " " + streamInfoSummary(info));
             return Single.just(info);
         }
+        // Debug logging (kept for future use):
+        // PersistentPlayerLogger.log(App.getApp(), "ExtractorHelper.degradedRetry.fire "
+        //         + "attempt=" + (attempt + 1) + "/" + MAX_DEGRADED_YOUTUBE_RETRIES
+        //         + " " + streamInfoSummary(info));
         Log.w(TAG, "YouTube StreamInfo for " + url + " looks degraded "
                 + "(no video-only streams, max combined video height <= 360p). "
                 + "Clearing YouTube JS player caches and retrying (attempt "
                 + (attempt + 1) + "/" + MAX_DEGRADED_YOUTUBE_RETRIES + ").");
+        // Debug logging (kept for future use):
+        // PersistentPlayerLogger.log(App.getApp(), "ExtractorHelper.clearAllCaches "
+        //         + "thread=" + Thread.currentThread().getName()
+        //         + " — clearing GLOBAL YoutubeJavaScriptPlayerManager caches (may race with "
+        //         + "concurrent extractions still deobfuscating n-params)");
         YoutubeJavaScriptPlayerManager.clearAllCaches();
         CACHE.removeInfo(serviceId, url, InfoCache.Type.STREAM);
         return Single.fromCallable(() ->
