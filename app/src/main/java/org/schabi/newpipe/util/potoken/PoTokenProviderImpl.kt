@@ -3,6 +3,7 @@ package org.schabi.newpipe.util.potoken
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.util.concurrent.TimeUnit
 import org.schabi.newpipe.App
 import org.schabi.newpipe.BuildConfig
 import org.schabi.newpipe.extractor.NewPipe
@@ -11,9 +12,11 @@ import org.schabi.newpipe.extractor.services.youtube.PoTokenProvider
 import org.schabi.newpipe.extractor.services.youtube.PoTokenResult
 import org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper
 import org.schabi.newpipe.util.DeviceUtils
+import org.schabi.newpipe.util.PersistentPlayerLogger
 
 object PoTokenProviderImpl : PoTokenProvider {
     val TAG = PoTokenProviderImpl::class.simpleName
+    private const val WEBVIEW_TIMEOUT_SECONDS = 15L
     private val webViewSupported by lazy { DeviceUtils.supportsWebView() }
     private var webViewBadImpl = false // whether the system has a bad WebView implementation
 
@@ -23,17 +26,40 @@ object PoTokenProviderImpl : PoTokenProvider {
     private var webPoTokenGenerator: PoTokenGenerator? = null
 
     override fun getWebClientPoToken(videoId: String): PoTokenResult? {
+        PersistentPlayerLogger.log(
+            App.getApp(),
+            "PoTokenProvider.getWebClientPoToken.start videoId=${videoId.redactedVideoId()} " +
+                "webViewSupported=$webViewSupported webViewBadImpl=$webViewBadImpl"
+        )
         if (!webViewSupported || webViewBadImpl) {
+            PersistentPlayerLogger.log(
+                App.getApp(),
+                "PoTokenProvider.getWebClientPoToken.skip " +
+                    "webViewSupported=$webViewSupported webViewBadImpl=$webViewBadImpl"
+            )
             return null
         }
 
         try {
-            return getWebClientPoToken(videoId = videoId, forceRecreate = false)
+            val result = getWebClientPoToken(videoId = videoId, forceRecreate = false)
+            PersistentPlayerLogger.log(
+                App.getApp(),
+                "PoTokenProvider.getWebClientPoToken.success videoId=${videoId.redactedVideoId()} " +
+                    "visitorDataLength=${result.visitorData?.length ?: -1} " +
+                    "playerPotLength=${result.playerRequestPoToken?.length ?: -1} " +
+                    "gvsPotLength=${result.streamingDataPoToken?.length ?: -1}"
+            )
+            return result
         } catch (e: RuntimeException) {
             // RxJava's Single wraps exceptions into RuntimeErrors, so we need to unwrap them here
             when (val cause = e.cause) {
                 is BadWebViewException -> {
                     Log.e(TAG, "Could not obtain poToken because WebView is broken", e)
+                    PersistentPlayerLogger.log(
+                        App.getApp(),
+                        "PoTokenProvider.getWebClientPoToken.badWebView " +
+                            "${cause.javaClass.simpleName}: ${cause.message}"
+                    )
                     webViewBadImpl = true
                     return null
                 }
@@ -42,6 +68,13 @@ object PoTokenProviderImpl : PoTokenProvider {
 
                 else -> throw cause // includes PoTokenException
             }
+        } catch (e: Throwable) {
+            PersistentPlayerLogger.log(
+                App.getApp(),
+                "PoTokenProvider.getWebClientPoToken.failed " +
+                    "${e.javaClass.simpleName}: ${e.message}"
+            )
+            return null
         }
     }
 
@@ -58,8 +91,18 @@ object PoTokenProviderImpl : PoTokenProvider {
             synchronized(WebPoTokenGenLock) {
                 val shouldRecreate = webPoTokenGenerator == null || forceRecreate ||
                     webPoTokenGenerator!!.isExpired()
+                PersistentPlayerLogger.log(
+                    App.getApp(),
+                    "PoTokenProvider.generator.locked " +
+                        "videoId=${videoId.redactedVideoId()} forceRecreate=$forceRecreate " +
+                        "shouldRecreate=$shouldRecreate hasGenerator=${webPoTokenGenerator != null}"
+                )
 
                 if (shouldRecreate) {
+                    PersistentPlayerLogger.log(
+                        App.getApp(),
+                        "PoTokenProvider.visitorData.start videoId=${videoId.redactedVideoId()}"
+                    )
                     val innertubeClientRequestInfo = InnertubeClientRequestInfo.ofWebClient()
                     innertubeClientRequestInfo.clientInfo.clientVersion =
                         YoutubeParsingHelper.getClientVersion()
@@ -73,17 +116,33 @@ object PoTokenProviderImpl : PoTokenProvider {
                         null,
                         false
                     )
+                    PersistentPlayerLogger.log(
+                        App.getApp(),
+                        "PoTokenProvider.visitorData.success " +
+                            "length=${webPoTokenVisitorData?.length ?: -1}"
+                    )
                     // close the current webPoTokenGenerator on the main thread
                     webPoTokenGenerator?.let { Handler(Looper.getMainLooper()).post { it.close() } }
 
                     // create a new webPoTokenGenerator
+                    PersistentPlayerLogger.log(App.getApp(), "PoTokenProvider.generator.create.start")
                     webPoTokenGenerator = PoTokenWebView
-                        .newPoTokenGenerator(App.getApp()).blockingGet()
+                        .newPoTokenGenerator(App.getApp())
+                        .timeout(WEBVIEW_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        .blockingGet()
+                    PersistentPlayerLogger.log(App.getApp(), "PoTokenProvider.generator.create.success")
 
                     // The streaming poToken needs to be generated exactly once before generating
                     // any other (player) tokens.
+                    PersistentPlayerLogger.log(App.getApp(), "PoTokenProvider.streamingPot.start")
                     webPoTokenStreamingPot = webPoTokenGenerator!!
-                        .generatePoToken(webPoTokenVisitorData!!).blockingGet()
+                        .generatePoToken(webPoTokenVisitorData!!)
+                        .timeout(WEBVIEW_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        .blockingGet()
+                    PersistentPlayerLogger.log(
+                        App.getApp(),
+                        "PoTokenProvider.streamingPot.success length=${webPoTokenStreamingPot?.length ?: -1}"
+                    )
                 }
 
                 return@synchronized Quadruple(
@@ -94,43 +153,74 @@ object PoTokenProviderImpl : PoTokenProvider {
                 )
             }
 
-        val playerPot: String
-        val gvsPot: String
-        try {
-            // Not using synchronized here, since poTokenGenerator would be able to generate
-            // multiple poTokens in parallel if needed. The only important thing is for exactly one
-            // visitorData/streaming poToken to be generated before anything else.
+        return synchronized(WebPoTokenGenLock) {
+            val playerPot: String
+            val gvsPot: String
+            try {
+                // The WebView-backed generator uses shared JavaScript state and the bridge returns
+                // by identifier, so calls for the same video must not overlap.
+                PersistentPlayerLogger.log(
+                    App.getApp(),
+                    "PoTokenProvider.generate.locked videoId=${videoId.redactedVideoId()}"
+                )
 
-            // Player token: video-ID-bound, sent in serviceIntegrityDimensions.poToken
-            playerPot = poTokenGenerator.generatePoToken(videoId).blockingGet()
+                // Player token: video-ID-bound, sent in serviceIntegrityDimensions.poToken
+                PersistentPlayerLogger.log(
+                    App.getApp(),
+                    "PoTokenProvider.playerPot.start videoId=${videoId.redactedVideoId()}"
+                )
+                playerPot = poTokenGenerator.generatePoToken(videoId)
+                    .timeout(WEBVIEW_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .blockingGet()
+                PersistentPlayerLogger.log(
+                    App.getApp(),
+                    "PoTokenProvider.playerPot.success length=${playerPot.length}"
+                )
 
-            // GVS token: also video-ID-bound (YouTube experiment html5_generate_content_po_token).
-            // YouTube has shifted from visitorData-bound to video-ID-bound GVS tokens.
-            // This token is appended to streaming URLs as &pot=
-            gvsPot = poTokenGenerator.generatePoToken(videoId).blockingGet()
-        } catch (throwable: Throwable) {
-            if (hasBeenRecreated) {
-                // the poTokenGenerator has just been recreated (and possibly this is already the
-                // second time we try), so there is likely nothing we can do
-                throw throwable
-            } else {
-                // retry, this time recreating the [webPoTokenGenerator] from scratch;
-                // this might happen for example if NewPipe goes in the background and the WebView
-                // content is lost
-                Log.e(TAG, "Failed to obtain poToken, retrying", throwable)
-                return getWebClientPoToken(videoId = videoId, forceRecreate = true)
+                // GVS token: also video-ID-bound (YouTube experiment html5_generate_content_po_token).
+                // YouTube has shifted from visitorData-bound to video-ID-bound GVS tokens.
+                // This token is appended to streaming URLs as &pot=
+                PersistentPlayerLogger.log(
+                    App.getApp(),
+                    "PoTokenProvider.gvsPot.start videoId=${videoId.redactedVideoId()}"
+                )
+                gvsPot = poTokenGenerator.generatePoToken(videoId)
+                    .timeout(WEBVIEW_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .blockingGet()
+                PersistentPlayerLogger.log(
+                    App.getApp(),
+                    "PoTokenProvider.gvsPot.success length=${gvsPot.length}"
+                )
+            } catch (throwable: Throwable) {
+                PersistentPlayerLogger.log(
+                    App.getApp(),
+                    "PoTokenProvider.generate.failed hasBeenRecreated=$hasBeenRecreated " +
+                        "${throwable.javaClass.simpleName}: ${throwable.message}"
+                )
+                if (hasBeenRecreated) {
+                    // the poTokenGenerator has just been recreated (and possibly this is already the
+                    // second time we try), so there is likely nothing we can do
+                    throw throwable
+                } else {
+                    // retry, this time recreating the [webPoTokenGenerator] from scratch;
+                    // this might happen for example if NewPipe goes in the background and the WebView
+                    // content is lost
+                    Log.e(TAG, "Failed to obtain poToken, retrying", throwable)
+                    PersistentPlayerLogger.log(App.getApp(), "PoTokenProvider.generate.retry")
+                    return getWebClientPoToken(videoId = videoId, forceRecreate = true)
+                }
             }
-        }
 
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                TAG,
-                "poToken for $videoId: playerPot=$playerPot, " +
-                    "gvsPot=$gvsPot, visitor_data=$visitorData"
-            )
-        }
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    TAG,
+                    "poToken for $videoId: playerPot=$playerPot, " +
+                        "gvsPot=$gvsPot, visitor_data=$visitorData"
+                )
+            }
 
-        return PoTokenResult(visitorData, playerPot, gvsPot)
+            PoTokenResult(visitorData, playerPot, gvsPot)
+        }
     }
 
     /**
@@ -154,4 +244,6 @@ object PoTokenProviderImpl : PoTokenProvider {
     }
 
     override fun getIosClientPoToken(videoId: String): PoTokenResult? = null
+
+    private fun String.redactedVideoId(): String = if (length <= 4) this else take(4) + "..."
 }

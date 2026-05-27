@@ -18,6 +18,7 @@ import org.schabi.newpipe.extractor.downloader.Response;
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException;
 import org.schabi.newpipe.extractor.services.youtube.PoTokenResult;
 import org.schabi.newpipe.util.InfoCache;
+import org.schabi.newpipe.util.PersistentPlayerLogger;
 import org.schabi.newpipe.util.potoken.PoTokenProviderImpl;
 
 import java.io.IOException;
@@ -217,33 +218,62 @@ public final class DownloaderImpl extends Downloader {
                 Log.d(DownloaderImpl.class.getSimpleName(),
                         "Player request clientName=" + clientName + " url=" + url);
             }
+            PersistentPlayerLogger.log(App.getApp(), "DownloaderImpl.playerRequest "
+                    + "clientName=" + clientName
+                    + " metadataOnly=" + isMetadataOnlyPlayerRequest(url)
+                    + " hasServiceIntegrityDimensions="
+                    + json.has("serviceIntegrityDimensions")
+                    + " videoId=" + redactVideoId(json.getString("videoId", null))
+                    + " url=" + url);
+
+            if (isMetadataOnlyPlayerRequest(url)) {
+                PersistentPlayerLogger.log(App.getApp(),
+                        "DownloaderImpl.playerRequest.skipPoToken reason=metadataOnly");
+                return dataToSend;
+            }
 
             // ANDROID/ANDROID_VR/IOS player requests: let the extractor's poToken flow through.
             // ANDROID_VR does not need poTokens at all.
             if ("ANDROID".equalsIgnoreCase(clientName)
                     || "ANDROID_VR".equalsIgnoreCase(clientName)
                     || "IOS".equalsIgnoreCase(clientName)) {
+                PersistentPlayerLogger.log(App.getApp(),
+                        "DownloaderImpl.playerRequest.skipPoToken reason=nativeClient "
+                                + "clientName=" + clientName);
                 return dataToSend;
             }
 
             if (json.has("serviceIntegrityDimensions")) {
+                PersistentPlayerLogger.log(App.getApp(),
+                        "DownloaderImpl.playerRequest.skipPoToken reason=alreadyPresent");
                 return dataToSend;
             }
 
             if (clientName == null
                     || (!"WEB".equalsIgnoreCase(clientName)
                     && !"WEB_EMBEDDED_PLAYER".equalsIgnoreCase(clientName))) {
+                PersistentPlayerLogger.log(App.getApp(),
+                        "DownloaderImpl.playerRequest.skipPoToken reason=unsupportedClient "
+                                + "clientName=" + clientName);
                 return dataToSend;
             }
 
             final String videoId = json.getString("videoId", null);
             if (videoId == null || videoId.isEmpty()) {
+                PersistentPlayerLogger.log(App.getApp(),
+                        "DownloaderImpl.playerRequest.skipPoToken reason=noVideoId");
                 return dataToSend;
             }
 
+            PersistentPlayerLogger.log(App.getApp(),
+                    "DownloaderImpl.playerRequest.poToken.start videoId="
+                            + redactVideoId(videoId));
             final PoTokenResult poToken =
                     PoTokenProviderImpl.INSTANCE.getWebClientPoToken(videoId);
             if (poToken == null || poToken.playerRequestPoToken == null) {
+                PersistentPlayerLogger.log(App.getApp(),
+                        "DownloaderImpl.playerRequest.poToken.unavailable videoId="
+                                + redactVideoId(videoId));
                 return dataToSend;
             }
 
@@ -263,8 +293,17 @@ public final class DownloaderImpl extends Downloader {
                                 + " (" + url + ")"
                 );
             }
+            PersistentPlayerLogger.log(App.getApp(),
+                    "DownloaderImpl.playerRequest.poToken.injected videoId="
+                            + redactVideoId(videoId)
+                            + " playerPotLength=" + poToken.playerRequestPoToken.length()
+                            + " visitorDataLength="
+                            + (poToken.visitorData == null ? -1 : poToken.visitorData.length()));
             return updatedBody.getBytes(StandardCharsets.UTF_8);
         } catch (final Exception e) {
+            PersistentPlayerLogger.log(App.getApp(),
+                    "DownloaderImpl.playerRequest.poToken.failed "
+                            + e.getClass().getSimpleName() + ": " + e.getMessage());
             if (MainActivity.DEBUG) {
                 Log.w(
                         DownloaderImpl.class.getSimpleName(),
@@ -274,6 +313,20 @@ public final class DownloaderImpl extends Downloader {
             }
             return dataToSend;
         }
+    }
+
+    private static boolean isMetadataOnlyPlayerRequest(@NonNull final String url) {
+        return url.contains("fields=microformat,videoDetails")
+                || url.contains("%24fields=microformat%2CvideoDetails")
+                || url.contains("$fields=microformat,videoDetails");
+    }
+
+    @NonNull
+    private static String redactVideoId(@Nullable final String videoId) {
+        if (videoId == null || videoId.length() <= 4) {
+            return String.valueOf(videoId);
+        }
+        return videoId.substring(0, 4) + "...";
     }
 
     private static String maybePatchYoutubePlayabilityStatus(

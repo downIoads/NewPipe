@@ -19,12 +19,14 @@ import io.reactivex.rxjava3.schedulers.Schedulers
 import java.time.Instant
 import org.schabi.newpipe.BuildConfig
 import org.schabi.newpipe.DownloaderImpl
+import org.schabi.newpipe.util.PersistentPlayerLogger
 
 class PoTokenWebView private constructor(
     context: Context,
     // to be used exactly once only during initialization!
     private val generatorEmitter: SingleEmitter<PoTokenGenerator>
 ) : PoTokenGenerator {
+    private val appContext = context.applicationContext
     private val webView = WebView(context)
     private val disposables = CompositeDisposable() // used only during initialization
     private val poTokenEmitters = mutableListOf<Pair<String, SingleEmitter<String>>>()
@@ -73,6 +75,7 @@ class PoTokenWebView private constructor(
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "loadHtmlAndObtainBotguard() called")
         }
+        PersistentPlayerLogger.log(appContext, "PoTokenWebView.loadHtml.start")
 
         disposables.add(
             Single.fromCallable {
@@ -84,6 +87,10 @@ class PoTokenWebView private constructor(
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(
                     { html ->
+                        PersistentPlayerLogger.log(
+                            appContext,
+                            "PoTokenWebView.loadHtml.success htmlLength=${html.length}"
+                        )
                         webView.loadDataWithBaseURL(
                             "https://www.youtube.com",
                             html.replaceFirst(
@@ -96,7 +103,13 @@ class PoTokenWebView private constructor(
                             null
                         )
                     },
-                    this::onInitializationErrorCloseAndCancel
+                    {
+                        PersistentPlayerLogger.log(
+                            appContext,
+                            "PoTokenWebView.loadHtml.failed ${it.javaClass.simpleName}: ${it.message}"
+                        )
+                        onInitializationErrorCloseAndCancel(it)
+                    }
                 )
         )
     }
@@ -110,6 +123,7 @@ class PoTokenWebView private constructor(
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "downloadAndRunBotguard() called")
         }
+        PersistentPlayerLogger.log(appContext, "PoTokenWebView.downloadAndRunBotguard.start")
 
         makeBotguardServiceRequest(
             "https://www.youtube.com/api/jnn/v1/Create",
@@ -142,6 +156,7 @@ class PoTokenWebView private constructor(
         if (BuildConfig.DEBUG) {
             Log.e(TAG, "Initialization error from JavaScript: $error")
         }
+        PersistentPlayerLogger.log(appContext, "PoTokenWebView.jsInitializationError $error")
         onInitializationErrorCloseAndCancel(buildExceptionForJsError(error))
     }
 
@@ -154,6 +169,10 @@ class PoTokenWebView private constructor(
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "botguardResponse: $botguardResponse")
         }
+        PersistentPlayerLogger.log(
+            appContext,
+            "PoTokenWebView.onRunBotguardResult responseLength=${botguardResponse.length}"
+        )
         makeBotguardServiceRequest(
             "https://www.youtube.com/api/jnn/v1/GenerateIT",
             "[ \"$REQUEST_KEY\", \"$botguardResponse\" ]"
@@ -162,6 +181,10 @@ class PoTokenWebView private constructor(
                 Log.d(TAG, "GenerateIT response: $responseBody")
             }
             val (integrityToken, expirationTimeInSeconds) = parseIntegrityTokenData(responseBody)
+            PersistentPlayerLogger.log(
+                appContext,
+                "PoTokenWebView.integrityToken.success expiresInSeconds=$expirationTimeInSeconds"
+            )
 
             // leave 10 minutes of margin just to be sure
             expirationInstant = Instant.now().plusSeconds(expirationTimeInSeconds - 600)
@@ -172,6 +195,7 @@ class PoTokenWebView private constructor(
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "initialization finished, expiration=${expirationTimeInSeconds}s")
                 }
+                PersistentPlayerLogger.log(appContext, "PoTokenWebView.initialization.finished")
                 generatorEmitter.onSuccess(this)
             }
         }
@@ -183,6 +207,10 @@ class PoTokenWebView private constructor(
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "generatePoToken() called with identifier $identifier")
         }
+        PersistentPlayerLogger.log(
+            appContext,
+            "PoTokenWebView.generatePoToken.start identifierLength=${identifier.length}"
+        )
         runOnMainThread(emitter) {
             addPoTokenEmitter(identifier, emitter)
             val u8Identifier = stringToU8(identifier)
@@ -213,6 +241,7 @@ class PoTokenWebView private constructor(
         if (BuildConfig.DEBUG) {
             Log.e(TAG, "obtainPoToken error from JavaScript: $error")
         }
+        PersistentPlayerLogger.log(appContext, "PoTokenWebView.obtainPoToken.error $error")
         popPoTokenEmitter(identifier)?.onError(buildExceptionForJsError(error))
     }
 
@@ -235,6 +264,11 @@ class PoTokenWebView private constructor(
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "Generated poToken: identifier=$identifier poToken=$poToken")
         }
+        PersistentPlayerLogger.log(
+            appContext,
+            "PoTokenWebView.obtainPoToken.success identifierLength=${identifier.length} " +
+                "poTokenLength=${poToken.length}"
+        )
         popPoTokenEmitter(identifier)?.onSuccess(poToken)
     }
 
@@ -297,6 +331,7 @@ class PoTokenWebView private constructor(
         data: String,
         handleResponseBody: (String) -> Unit
     ) {
+        PersistentPlayerLogger.log(appContext, "PoTokenWebView.botguardRequest.start url=$url")
         disposables.add(
             Single.fromCallable {
                 return@fromCallable DownloaderImpl.getInstance().post(
@@ -318,15 +353,31 @@ class PoTokenWebView private constructor(
                     { response ->
                         val httpCode = response.responseCode()
                         if (httpCode != 200) {
+                            PersistentPlayerLogger.log(
+                                appContext,
+                                "PoTokenWebView.botguardRequest.badStatus url=$url code=$httpCode"
+                            )
                             onInitializationErrorCloseAndCancel(
                                 PoTokenException("Invalid response code: $httpCode")
                             )
                             return@subscribe
                         }
                         val responseBody = response.responseBody()
+                        PersistentPlayerLogger.log(
+                            appContext,
+                            "PoTokenWebView.botguardRequest.success url=$url " +
+                                "bodyLength=${responseBody.length}"
+                        )
                         handleResponseBody(responseBody)
                     },
-                    this::onInitializationErrorCloseAndCancel
+                    {
+                        PersistentPlayerLogger.log(
+                            appContext,
+                            "PoTokenWebView.botguardRequest.failed url=$url " +
+                                "${it.javaClass.simpleName}: ${it.message}"
+                        )
+                        onInitializationErrorCloseAndCancel(it)
+                    }
                 )
         )
     }
@@ -336,6 +387,10 @@ class PoTokenWebView private constructor(
      * to [generatorEmitter].
      */
     private fun onInitializationErrorCloseAndCancel(error: Throwable) {
+        PersistentPlayerLogger.log(
+            appContext,
+            "PoTokenWebView.initialization.failed ${error.javaClass.simpleName}: ${error.message}"
+        )
         runOnMainThread(generatorEmitter) {
             close()
             generatorEmitter.onError(error)
@@ -347,6 +402,7 @@ class PoTokenWebView private constructor(
      */
     @MainThread
     override fun close() {
+        PersistentPlayerLogger.log(appContext, "PoTokenWebView.close")
         disposables.dispose()
 
         webView.clearHistory()

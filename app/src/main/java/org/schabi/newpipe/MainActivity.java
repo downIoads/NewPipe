@@ -89,6 +89,7 @@ import org.schabi.newpipe.util.Localization;
 import org.schabi.newpipe.util.NavigationHelper;
 import org.schabi.newpipe.util.PeertubeHelper;
 import org.schabi.newpipe.util.PermissionHelper;
+import org.schabi.newpipe.util.PersistentPlayerLogger;
 import org.schabi.newpipe.util.ReleaseVersionUtil;
 import org.schabi.newpipe.util.SerializedCache;
 import org.schabi.newpipe.util.ServiceHelper;
@@ -128,6 +129,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int ORDER = 0;
     public static final String KEY_IS_IN_BACKGROUND = "is_in_background";
+    private static boolean webViewWarmUpDone;
 
     private SharedPreferences sharedPreferences;
     private SharedPreferences.Editor sharedPrefEditor;
@@ -149,15 +151,7 @@ public class MainActivity extends AppCompatActivity {
         // Fixes text color turning black in dark/black mode:
         // https://github.com/TeamNewPipe/NewPipe/issues/12016
         // For further reference see: https://issuetracker.google.com/issues/37124582
-        if (DeviceUtils.supportsWebView()) {
-            try {
-                new WebView(this);
-            } catch (final Throwable e) {
-                if (DEBUG) {
-                    Log.e(TAG, "Failed to create WebView", e);
-                }
-            }
-        }
+        warmUpWebViewOnce();
 
         super.onCreate(savedInstanceState);
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
@@ -198,6 +192,33 @@ public class MainActivity extends AppCompatActivity {
         }
 
         MigrationManager.showUserInfoIfPresent(this);
+    }
+
+    private void warmUpWebViewOnce() {
+        if (webViewWarmUpDone || !DeviceUtils.supportsWebView()) {
+            return;
+        }
+
+        webViewWarmUpDone = true;
+        WebView webView = null;
+        try {
+            webView = new WebView(this);
+            PersistentPlayerLogger.log(this, "MainActivity.webViewWarmUp.created");
+        } catch (final Throwable e) {
+            PersistentPlayerLogger.log(this, "MainActivity.webViewWarmUp.failed "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage());
+            if (DEBUG) {
+                Log.e(TAG, "Failed to create WebView", e);
+            }
+        } finally {
+            if (webView != null) {
+                webView.loadUrl("about:blank");
+                webView.onPause();
+                webView.removeAllViews();
+                webView.destroy();
+                PersistentPlayerLogger.log(this, "MainActivity.webViewWarmUp.destroyed");
+            }
+        }
     }
 
     @Override

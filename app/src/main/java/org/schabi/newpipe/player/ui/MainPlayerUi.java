@@ -70,6 +70,7 @@ import org.schabi.newpipe.player.playqueue.PlayQueueItemHolder;
 import org.schabi.newpipe.player.playqueue.PlayQueueItemTouchCallback;
 import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.NavigationHelper;
+import org.schabi.newpipe.util.PersistentPlayerLogger;
 import org.schabi.newpipe.util.external_communication.KoreUtils;
 import org.schabi.newpipe.util.external_communication.ShareUtils;
 
@@ -155,6 +156,8 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
         super.initListeners();
 
         binding.screenRotationButton.setOnClickListener(makeOnClickListener(() -> {
+            PersistentPlayerLogger.log(context, "MainPlayerUi.screenRotationButton.click "
+                    + stateForLog());
             // Only if it's not a vertical video or vertical video but in landscape with locked
             // orientation a screen orientation can be changed automatically
             if (!isVerticalVideo || (isLandscape() && globalScreenOrientationLocked(context))) {
@@ -856,6 +859,18 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
         return isVerticalVideo;
     }
 
+    @NonNull
+    private String stateForLog() {
+        return "fullscreen=" + isFullscreen
+                + " verticalVideo=" + isVerticalVideo
+                + " landscape=" + isLandscape()
+                + " orientationLocked=" + globalScreenOrientationLocked(context)
+                + " tablet=" + DeviceUtils.isTablet(context)
+                + " tv=" + DeviceUtils.isTv(context)
+                + " playerSelected=" + player.videoPlayerSelected()
+                + " state=" + player.getCurrentState();
+    }
+
     //endregion
 
 
@@ -923,9 +938,14 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
         if (DEBUG) {
             Log.d(TAG, "toggleFullscreen() called");
         }
+        PersistentPlayerLogger.log(context, "MainPlayerUi.toggleFullscreen.start "
+                + stateForLog());
         final PlayerServiceEventListener fragmentListener = player.getFragmentListener()
                 .orElse(null);
         if (fragmentListener == null || player.exoPlayerIsNull()) {
+            PersistentPlayerLogger.log(context, "MainPlayerUi.toggleFullscreen.skipped "
+                    + "fragmentListenerNull=" + (fragmentListener == null)
+                    + " exoPlayerNull=" + player.exoPlayerIsNull() + " " + stateForLog());
             return;
         }
 
@@ -945,6 +965,8 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
         binding.metadataView.setVisibility(isFullscreen ? View.VISIBLE : View.GONE);
         binding.playerCloseButton.setVisibility(isFullscreen ? View.GONE : View.VISIBLE);
         setupScreenRotationButton();
+        PersistentPlayerLogger.log(context, "MainPlayerUi.toggleFullscreen.end "
+                + stateForLog());
     }
 
     public void checkLandscape() {

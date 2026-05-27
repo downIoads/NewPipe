@@ -41,6 +41,7 @@ import org.schabi.newpipe.player.mediabrowser.MediaBrowserPlaybackPreparer;
 import org.schabi.newpipe.player.mediasession.MediaSessionPlayerUi;
 import org.schabi.newpipe.player.notification.NotificationPlayerUi;
 import org.schabi.newpipe.player.notification.NotificationUtil;
+import org.schabi.newpipe.util.PersistentPlayerLogger;
 import org.schabi.newpipe.util.ThemeHelper;
 
 import java.lang.ref.WeakReference;
@@ -128,6 +129,13 @@ public final class PlayerService extends MediaBrowserServiceCompat {
                     + "], extras = [" + BundleKt.toDebugString(intent.getExtras())
                     + "], flags = [" + flags + "], startId = [" + startId + "]");
         }
+        PersistentPlayerLogger.log(this, "PlayerService.onStartCommand "
+                + "intentNull=" + (intent == null)
+                + " shouldStartForeground="
+                + (intent != null && intent.getBooleanExtra(SHOULD_START_FOREGROUND_EXTRA, false))
+                + " playerNull=" + (player == null)
+                + " flags=" + flags
+                + " startId=" + startId);
 
         // All internal NewPipe intents used to interact with the player, that are sent to the
         // PlayerService using startForegroundService(), will have SHOULD_START_FOREGROUND_EXTRA,
@@ -137,6 +145,7 @@ public final class PlayerService extends MediaBrowserServiceCompat {
             if (playerWasNull) {
                 // make sure the player exists, in case the service was resumed
                 player = new Player(this, mediaSession, sessionConnector);
+                PersistentPlayerLogger.log(this, "PlayerService.createdPlayer");
             }
 
             // Be sure that the player notification is set and the service is started in foreground,
@@ -165,12 +174,15 @@ public final class PlayerService extends MediaBrowserServiceCompat {
             // "Context.startForegroundService() did not then call Service.startForeground()". Then
             // we stop the service again.
             Log.d(TAG, "onStartCommand() got a useless intent, closing the service");
+            PersistentPlayerLogger.log(this, "PlayerService.uselessIntentStopping");
             NotificationUtil.startForegroundWithDummyNotification(this);
             destroyPlayerAndStopService();
             return START_NOT_STICKY;
         }
 
         final PlayerType oldPlayerType = player.getPlayerType();
+        PersistentPlayerLogger.log(this, "PlayerService.handleIntent "
+                + "oldPlayerType=" + oldPlayerType);
         player.handleIntent(intent);
         player.handleIntentPost(oldPlayerType);
         player.UIs().get(MediaSessionPlayerUi.class)

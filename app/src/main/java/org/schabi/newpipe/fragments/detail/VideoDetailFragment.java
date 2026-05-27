@@ -115,6 +115,7 @@ import org.schabi.newpipe.util.ListHelper;
 import org.schabi.newpipe.util.Localization;
 import org.schabi.newpipe.util.NavigationHelper;
 import org.schabi.newpipe.util.PermissionHelper;
+import org.schabi.newpipe.util.PersistentPlayerLogger;
 import org.schabi.newpipe.util.PlayButtonHelper;
 import org.schabi.newpipe.util.StreamTypeUtil;
 import org.schabi.newpipe.util.ThemeHelper;
@@ -871,11 +872,23 @@ public final class VideoDetailFragment
 
     private void runWorker(final boolean forceLoad, final boolean addToBackStack) {
         final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(activity);
+        PersistentPlayerLogger.log(activity, "VideoDetailFragment.runWorker.start "
+                + "serviceId=" + serviceId
+                + " forceLoad=" + forceLoad
+                + " addToBackStack=" + addToBackStack
+                + " url=" + url);
         currentWorker = ExtractorHelper.getStreamInfo(serviceId, url, forceLoad)
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(result -> {
                     isLoading.set(false);
+                    PersistentPlayerLogger.log(activity, "VideoDetailFragment.runWorker.success "
+                            + "serviceId=" + serviceId
+                            + " streamType=" + result.getStreamType()
+                            + " audioStreams=" + result.getAudioStreams().size()
+                            + " videoStreams=" + result.getVideoStreams().size()
+                            + " videoOnlyStreams=" + result.getVideoOnlyStreams().size()
+                            + " isAutoplayEnabled=" + isAutoplayEnabled());
                     hideMainPlayerOnLoadingNewStream();
                     if (result.getAgeLimit() != NO_AGE_LIMIT && !prefs.getBoolean(
                             getString(R.string.show_age_restricted_content), false)) {
@@ -898,6 +911,9 @@ public final class VideoDetailFragment
                         }
                     }
                 }, throwable -> {
+                    PersistentPlayerLogger.log(activity, "VideoDetailFragment.runWorker.failed "
+                            + throwable.getClass().getSimpleName() + ": "
+                            + throwable.getMessage());
                     if (DEBUG) {
                         Log.e(TAG, "Failed to load stream info: serviceId="
                                 + serviceId + ", url=" + url + ", forceLoad=" + forceLoad
@@ -1221,10 +1237,15 @@ public final class VideoDetailFragment
 
     private void openMainPlayer() {
         if (!isPlayerServiceAvailable()) {
+            PersistentPlayerLogger.log(activity, "VideoDetailFragment.openMainPlayer.startService "
+                    + "autoPlayEnabled=" + autoPlayEnabled
+                    + " currentInfoNull=" + (currentInfo == null));
             playerHolder.startService(autoPlayEnabled, this);
             return;
         }
         if (currentInfo == null) {
+            PersistentPlayerLogger.log(activity,
+                    "VideoDetailFragment.openMainPlayer.skipped currentInfoNull");
             return;
         }
 
@@ -1237,6 +1258,10 @@ public final class VideoDetailFragment
                                 PlayerIntentType.AllOthers)
                         .putExtra(Player.PLAY_WHEN_READY, autoPlayEnabled)
                         .putExtra(Player.RESUME_PLAYBACK, true);
+        PersistentPlayerLogger.log(activity, "VideoDetailFragment.openMainPlayer.intent "
+                + "autoPlayEnabled=" + autoPlayEnabled
+                + " queueSize=" + queue.size()
+                + " currentInfo=" + currentInfo.getName());
         ContextCompat.startForegroundService(activity, playerIntent);
     }
 
@@ -1343,6 +1368,9 @@ public final class VideoDetailFragment
                     playerUi.removeViewFromParent();
                     binding.playerPlaceholder.addView(playerUi.getBinding().getRoot());
                     playerUi.setupVideoSurfaceIfNeeded();
+                    PersistentPlayerLogger.log(activity,
+                            "VideoDetailFragment.tryAddVideoPlayerView.added "
+                                    + screenRotationStateForLog());
                 }
             });
         });
@@ -1354,6 +1382,8 @@ public final class VideoDetailFragment
         if (player != null) {
             player.UIs().get(VideoPlayerUi.class).ifPresent(VideoPlayerUi::removeViewFromParent);
         }
+        PersistentPlayerLogger.log(activity, "VideoDetailFragment.removeVideoPlayerView "
+                + screenRotationStateForLog());
     }
 
     private void makeDefaultHeightForVideoPlaceholder() {
@@ -1947,6 +1977,8 @@ public final class VideoDetailFragment
 
     @Override
     public void onFullscreenStateChanged(final boolean fullscreen) {
+        PersistentPlayerLogger.log(activity, "VideoDetailFragment.onFullscreenStateChanged "
+                + "fullscreen=" + fullscreen + " " + screenRotationStateForLog());
         setupBrightness();
         if (!isPlayerAndPlayerServiceAvailable()
                 || player.UIs().get(MainPlayerUi.class).isEmpty()
@@ -1971,16 +2003,24 @@ public final class VideoDetailFragment
 
     @Override
     public void onScreenRotationButtonClicked() {
+        PersistentPlayerLogger.log(activity, "VideoDetailFragment.screenRotationButton.callback "
+                + screenRotationStateForLog());
         final Optional<MainPlayerUi> playerUi = player != null
                 ? player.UIs().get(MainPlayerUi.class)
                 : Optional.empty();
         if (playerUi.isEmpty()) {
+            PersistentPlayerLogger.log(activity,
+                    "VideoDetailFragment.screenRotationButton.noMainPlayerUi "
+                            + screenRotationStateForLog());
             return;
         }
 
         // On tablets and TVs, just toggle fullscreen UI without orientation change.
         if (DeviceUtils.isTablet(activity) || DeviceUtils.isTv(activity)) {
             playerUi.get().toggleFullscreen();
+            PersistentPlayerLogger.log(activity,
+                    "VideoDetailFragment.screenRotationButton.tabletOrTvToggled "
+                            + screenRotationStateForLog());
             return;
         }
 
@@ -1988,12 +2028,35 @@ public final class VideoDetailFragment
             // EXITING FULLSCREEN
             playerUi.get().toggleFullscreen();
             activity.setRequestedOrientation(originalOrientation);
+            PersistentPlayerLogger.log(activity,
+                    "VideoDetailFragment.screenRotationButton.exitFullscreen requested="
+                            + originalOrientation + " " + screenRotationStateForLog());
         } else {
             // ENTERING FULLSCREEN
             originalOrientation = activity.getRequestedOrientation();
             playerUi.get().toggleFullscreen();
             activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            PersistentPlayerLogger.log(activity,
+                    "VideoDetailFragment.screenRotationButton.enterFullscreen original="
+                            + originalOrientation + " requested="
+                            + ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE + " "
+                            + screenRotationStateForLog());
         }
+    }
+
+    @NonNull
+    private String screenRotationStateForLog() {
+        return "activityNull=" + (activity == null)
+                + " playerNull=" + (player == null)
+                + " fullscreen=" + isFullscreen()
+                + " bottomSheetState=" + bottomSheetState
+                + " requestedOrientation="
+                + (activity == null ? "n/a" : activity.getRequestedOrientation())
+                + " globalOrientationLocked="
+                + (activity != null && globalScreenOrientationLocked(activity))
+                + " landscape=" + (activity != null && DeviceUtils.isLandscape(activity))
+                + " tablet=" + (activity != null && DeviceUtils.isTablet(activity))
+                + " tv=" + (activity != null && DeviceUtils.isTv(activity));
     }
 
     /*

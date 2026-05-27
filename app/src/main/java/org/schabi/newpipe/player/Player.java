@@ -131,6 +131,7 @@ import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.ExtractorHelper;
 import org.schabi.newpipe.util.ListHelper;
 import org.schabi.newpipe.util.NavigationHelper;
+import org.schabi.newpipe.util.PersistentPlayerLogger;
 import org.schabi.newpipe.util.SerializedCache;
 import org.schabi.newpipe.util.StreamTypeUtil;
 import org.schabi.newpipe.util.image.PicassoHelper;
@@ -444,9 +445,16 @@ public final class Player implements PlaybackListener, Listener {
 
     @SuppressWarnings("MethodLength")
     public void handleIntent(@NonNull final Intent intent) {
+        PersistentPlayerLogger.log(context, "Player.handleIntent.start "
+                + "playerType=" + playerType
+                + " playQueueNull=" + (playQueue == null)
+                + " currentState=" + currentState
+                + " playWhenReadyExtra=" + intent.getBooleanExtra(PLAY_WHEN_READY, false)
+                + " resumeExtra=" + intent.getBooleanExtra(RESUME_PLAYBACK, false));
         final var playerIntentType = IntentCompat.getSerializableExtra(intent, PLAYER_INTENT_TYPE,
                 PlayerIntentType.class);
         if (playerIntentType == null) {
+            PersistentPlayerLogger.log(context, "Player.handleIntent.skipped noIntentType");
             return;
         }
         // TODO: this should be in the second switch below, but I’m not sure whether I
@@ -718,6 +726,11 @@ public final class Player implements PlaybackListener, Listener {
         if (DEBUG) {
             Log.d(TAG, "initPlayer() called with: playOnReady = [" + playOnReady + "]");
         }
+        PersistentPlayerLogger.log(context, "Player.initPlayer "
+                + "playOnReady=" + playOnReady
+                + " playerType=" + playerType
+                + " playQueueNull=" + (playQueue == null)
+                + " playQueueSize=" + (playQueue == null ? -1 : playQueue.size()));
 
         simpleExoPlayer = new ExoPlayer.Builder(context, renderFactory)
                 .setTrackSelector(trackSelector)
@@ -760,6 +773,9 @@ public final class Player implements PlaybackListener, Listener {
         if (DEBUG) {
             Log.d(TAG, "destroyPlayer() called");
         }
+        PersistentPlayerLogger.log(context, "Player.destroyPlayer "
+                + "exoPlayerNull=" + exoPlayerIsNull()
+                + " currentState=" + currentState);
         UIs.call(PlayerUi::destroyPlayer);
 
         if (!exoPlayerIsNull()) {
@@ -1163,6 +1179,10 @@ public final class Player implements PlaybackListener, Listener {
                     + "playWhenReady = [" + playWhenReady + "], "
                     + "reason = [" + reason + "]");
         }
+        PersistentPlayerLogger.log(context, "Player.exoPlayWhenReady "
+                + "playWhenReady=" + playWhenReady
+                + " reason=" + reason
+                + " exoState=" + (exoPlayerIsNull() ? -1 : simpleExoPlayer.getPlaybackState()));
         final int playbackState = exoPlayerIsNull()
                 ? com.google.android.exoplayer2.Player.STATE_IDLE
                 : simpleExoPlayer.getPlaybackState();
@@ -1175,6 +1195,12 @@ public final class Player implements PlaybackListener, Listener {
             Log.d(TAG, "ExoPlayer - onPlaybackStateChanged() called with: "
                     + "playbackState = [" + playbackState + "]");
         }
+        PersistentPlayerLogger.log(context, "Player.exoPlaybackState "
+                + "playbackState=" + playbackState
+                + " playWhenReady=" + getPlayWhenReady()
+                + " currentState=" + currentState
+                + " isPrepared=" + isPrepared
+                + " playQueueNull=" + (playQueue == null));
         updatePlaybackState(getPlayWhenReady(), playbackState);
     }
 
@@ -1834,6 +1860,12 @@ public final class Player implements PlaybackListener, Listener {
     @Override
     public void onPlayerError(@NonNull final PlaybackException error) {
         Log.e(TAG, "ExoPlayer - onPlayerError() called with:", error);
+        PersistentPlayerLogger.log(context, "Player.onPlayerError "
+                + "errorCode=" + error.errorCode
+                + " errorCodeName=" + error.getErrorCodeName()
+                + " message=" + error.getMessage()
+                + " cause=" + (error.getCause() == null
+                ? "null" : error.getCause().getClass().getSimpleName()));
 
         // Persist error info to file for offline debugging
         final long positionMs = exoPlayerIsNull() ? -1
