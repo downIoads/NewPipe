@@ -16,8 +16,13 @@ import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 
 final class CacheFactory implements DataSource.Factory {
     private static final String TAG = "CacheFactory";
-    private static final int CACHE_FLAGS = CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
-            | CacheDataSource.FLAG_BLOCK_ON_CACHE;
+    // NOTE: FLAG_BLOCK_ON_CACHE is deliberately NOT set. SimpleCache allows only one writer per
+    // cache key, and the whole-stream disk prefetch (CacheWriter) holds that lock for the duration
+    // of its download. With FLAG_BLOCK_ON_CACHE, playback requesting an uncached region of the same
+    // key would block until the prefetch released the lock (i.e. until the whole file downloaded),
+    // freezing playback. Without it, playback instead streams that region straight from upstream
+    // when it cannot take the write lock, while still reading any already-cached region from disk.
+    private static final int CACHE_FLAGS = CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR;
 
     private final Context context;
     private final TransferListener transferListener;

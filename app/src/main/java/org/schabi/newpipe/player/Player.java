@@ -72,6 +72,7 @@ import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player.PositionInfo;
+import com.google.android.exoplayer2.SeekParameters;
 import com.google.android.exoplayer2.analytics.AnalyticsListener;
 import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.Tracks;
@@ -1333,11 +1334,24 @@ public final class Player implements PlaybackListener, Listener {
         final long memoryStartMs = Math.max(0, playheadMs - LoadController.getSeekRetainMs());
 
         Log.d(TAG, "State probe - playhead=" + formatProbeTime(playheadMs)
+                + " | " + exoPlaybackStateName(simpleExoPlayer.getPlaybackState())
+                + (simpleExoPlayer.getPlayWhenReady() ? "+playWhenReady" : "+paused")
+                + (simpleExoPlayer.isLoading() ? " LOADING" : " idle")
                 + " | memory~[" + formatProbeTime(memoryStartMs)
                 + ".." + formatProbeTime(memoryEndMs) + "]"
                 + " aheadMs=" + (memoryEndMs - playheadMs)
                 + " | disk=" + PlayerDataSource.describeDiskCacheRanges(key, durationMs)
                 + " | duration=" + formatProbeTime(durationMs));
+    }
+
+    private static String exoPlaybackStateName(final int state) {
+        switch (state) {
+            case com.google.android.exoplayer2.Player.STATE_IDLE: return "IDLE";
+            case com.google.android.exoplayer2.Player.STATE_BUFFERING: return "BUFFERING";
+            case com.google.android.exoplayer2.Player.STATE_READY: return "READY";
+            case com.google.android.exoplayer2.Player.STATE_ENDED: return "ENDED";
+            default: return "STATE_" + state;
+        }
     }
 
     private static String formatProbeTime(final long ms) {
@@ -2331,8 +2345,30 @@ public final class Player implements PlaybackListener, Listener {
 
     public void seekTo(final long positionMillis) {
         if (DEBUG) {
-            Log.d(TAG, "seekBy() called with: position = [" + positionMillis + "]");
+            Log.d(TAG, "seekTo() called with: position = [" + positionMillis + "]");
         }
+        // Precise seeks (e.g. dragging the seekbar) honour the user's configured seek mode.
+        seekToInternal(positionMillis, PlayerHelper.getSeekParameters(context));
+    }
+
+    private void seekBy(final long offsetMillis) {
+        if (DEBUG) {
+            Log.d(TAG, "seekBy() called with: offsetMillis = [" + offsetMillis + "]");
+        }
+        if (exoPlayerIsNull()) {
+            return;
+        }
+        // Double-tap / fast-forward-rewind: snap to the nearest keyframe instead of the exact
+        // frame. An EXACT seek has to decode every frame from the previous keyframe up to the
+        // target before it can render; on this device the hardware AVC decoder is filtered out
+        // (Tensor G4 workaround) so that decode runs in software and costs ~1-3s even when the
+        // target is already buffered. CLOSEST_SYNC jumps straight to a keyframe, so it is
+        // effectively instant for in-buffer skips.
+        seekToInternal(simpleExoPlayer.getCurrentPosition() + offsetMillis,
+                SeekParameters.CLOSEST_SYNC);
+    }
+
+    private void seekToInternal(final long positionMillis, final SeekParameters seekParameters) {
         if (!exoPlayerIsNull()) {
             // prevent invalid positions when fast-forwarding/-rewinding
             final long target = MathUtils.clamp(positionMillis, 0, simpleExoPlayer.getDuration());
@@ -2353,17 +2389,11 @@ public final class Player implements PlaybackListener, Listener {
                     + " inMemoryBufferedAhead=" + bufferedAheadMs + "ms"
                     + " inMemoryBufferedPos=" + simpleExoPlayer.getBufferedPosition() + "ms"
                     + " diskCached=" + diskPercent + "%"
-                    + " seekParams=" + PlayerHelper.getSeekParameters(context));
+                    + " seekParams=" + seekParameters);
 
+            simpleExoPlayer.setSeekParameters(seekParameters);
             simpleExoPlayer.seekTo(target);
         }
-    }
-
-    private void seekBy(final long offsetMillis) {
-        if (DEBUG) {
-            Log.d(TAG, "seekBy() called with: offsetMillis = [" + offsetMillis + "]");
-        }
-        seekTo(simpleExoPlayer.getCurrentPosition() + offsetMillis);
     }
 
     public void seekToDefault() {
