@@ -134,6 +134,15 @@ public class VideoPlaybackResolver implements PlaybackResolver {
         // Use the audio stream if there is no video stream, or
         // merge with audio stream in case if video does not contain audio
         if (audio != null && (video == null || video.isVideoOnly() || audioTrack != null)) {
+            Log.i(TAG, "resolve(): selected audio format=" + audio.getFormat()
+                    + ", codec=" + audio.getCodec()
+                    + ", averageBitrate=" + audio.getAverageBitrate()
+                    + ", bitrate=" + audio.getBitrate()
+                    + ", itag=" + audio.getItag()
+                    + ", trackId=" + audio.getAudioTrackId()
+                    + ", trackName=" + audio.getAudioTrackName()
+                    + ", trackType=" + audio.getAudioTrackType()
+                    + ", locale=" + audio.getAudioLocale());
             try {
                 final MediaSource audioSource = PlaybackResolver.buildMediaSource(
                         dataSource, audio, info, PlaybackResolver.cacheKeyOf(info, audio), tag);

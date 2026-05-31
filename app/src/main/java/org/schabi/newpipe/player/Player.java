@@ -326,7 +326,7 @@ public final class Player implements PlaybackListener, Listener {
                                               final long initializedTimestampMs,
                                               final long initializationDurationMs) {
             Log.i(TAG, "Playback codec - video decoder initialized: " + decoderName
-                    + " (" + classifyVideoDecoder(decoderName) + ")"
+                    + " (" + classifyDecoder(decoderName) + ")"
                     + " in " + initializationDurationMs + "ms"
                     + ", tunneling=" + trackSelector.getParameters().tunnelingEnabled);
             maybeDisableTunnelingForDecoder(decoderName);
@@ -342,6 +342,28 @@ public final class Player implements PlaybackListener, Listener {
                     + ", width=" + format.width
                     + ", height=" + format.height
                     + ", frameRate=" + format.frameRate
+                    + ", bitrate=" + format.bitrate);
+        }
+
+        @Override
+        public void onAudioDecoderInitialized(@NonNull final EventTime eventTime,
+                                              @NonNull final String decoderName,
+                                              final long initializedTimestampMs,
+                                              final long initializationDurationMs) {
+            Log.i(TAG, "Playback codec - audio decoder initialized: " + decoderName
+                    + " (" + classifyDecoder(decoderName) + ")"
+                    + " in " + initializationDurationMs + "ms");
+        }
+
+        @Override
+        public void onAudioInputFormatChanged(@NonNull final EventTime eventTime,
+                                              @NonNull final Format format,
+                                              @Nullable final DecoderReuseEvaluation
+                                                      decoderReuseEvaluation) {
+            Log.i(TAG, "Playback codec - audio input format: mime=" + format.sampleMimeType
+                    + ", codecs=" + format.codecs
+                    + ", channelCount=" + format.channelCount
+                    + ", sampleRate=" + format.sampleRate
                     + ", bitrate=" + format.bitrate);
         }
 
@@ -1541,7 +1563,7 @@ public final class Player implements PlaybackListener, Listener {
     }
 
     @NonNull
-    private static String classifyVideoDecoder(@NonNull final String decoderName) {
+    private static String classifyDecoder(@NonNull final String decoderName) {
         final String normalized = decoderName.toLowerCase(Locale.US);
         if (normalized.startsWith("c2.android.")
                 || normalized.startsWith("omx.google.")) {
@@ -1550,6 +1572,9 @@ public final class Player implements PlaybackListener, Listener {
         if (normalized.startsWith("c2.exynos.")
                 || normalized.startsWith("c2.google.av1.")) {
             return "hardware";
+        }
+        if (normalized.startsWith("c2.dolby.")) {
+            return "vendor-not-hardware";
         }
         return "unknown";
     }

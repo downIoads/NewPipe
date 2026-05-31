@@ -76,6 +76,21 @@ public class AudioPlaybackResolver implements PlaybackResolver {
         }
 
         try {
+            if (stream instanceof AudioStream) {
+                final AudioStream audio = (AudioStream) stream;
+                Log.i(TAG, "resolve(): selected audio format=" + audio.getFormat()
+                        + ", codec=" + audio.getCodec()
+                        + ", averageBitrate=" + audio.getAverageBitrate()
+                        + ", bitrate=" + audio.getBitrate()
+                        + ", itag=" + audio.getItag()
+                        + ", trackId=" + audio.getAudioTrackId()
+                        + ", trackName=" + audio.getAudioTrackName()
+                        + ", trackType=" + audio.getAudioTrackType()
+                        + ", locale=" + audio.getAudioLocale());
+            } else if (stream != null) {
+                Log.i(TAG, "resolve(): selected fallback stream format=" + stream.getFormat()
+                        + ", delivery=" + stream.getDeliveryMethod());
+            }
             return PlaybackResolver.buildMediaSource(
                     dataSource, stream, info, PlaybackResolver.cacheKeyOf(info, stream), tag);
         } catch (final ResolverException e) {
