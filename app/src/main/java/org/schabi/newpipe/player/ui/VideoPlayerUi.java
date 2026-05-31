@@ -877,8 +877,12 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
     @Override
     public void onBuffering() {
         super.onBuffering();
-        binding.loadingPanel.setBackgroundColor(Color.TRANSPARENT);
-        binding.loadingPanel.setVisibility(View.VISIBLE);
+        // Don't show the loading spinner during double tap seeking. Seeks now resolve from cache
+        // practically instantly, so the brief buffering it triggers shouldn't flash a spinner.
+        if (!playerGestureListener.isDoubleTapping()) {
+            binding.loadingPanel.setBackgroundColor(Color.TRANSPARENT);
+            binding.loadingPanel.setVisibility(View.VISIBLE);
+        }
         binding.getRoot().setKeepScreenOn(true);
     }
 
