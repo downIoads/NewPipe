@@ -20,3 +20,6 @@ app/release/
 bin/
 .vscode/
 *.code-workspace
+CLAUDE.md
+CODEX.md
+PIXEL.md
