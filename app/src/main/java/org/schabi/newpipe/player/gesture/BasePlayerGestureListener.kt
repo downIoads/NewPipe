@@ -44,6 +44,11 @@ abstract class BasePlayerGestureListener(
             playerUi.hideControls(0, 0)
         }
         if (portion === DisplayPortion.LEFT || portion === DisplayPortion.RIGHT) {
+            // While playing, hide the controls overlay (title, timeline, ...) instantly so it
+            // doesn't linger over the seek. While paused we keep it shown on purpose.
+            if (player.playWhenReady) {
+                playerUi.hideControls(0, 0)
+            }
             startMultiDoubleTap(event)
         } else if (portion === DisplayPortion.MIDDLE) {
             player.playPause()
@@ -136,12 +141,10 @@ abstract class BasePlayerGestureListener(
             lastTapPortion = null
             onDoubleTap(e, portion)
             if (portion == DisplayPortion.LEFT || portion == DisplayPortion.RIGHT) {
-                // The preceding single tap may have just popped up the controls overlay (title,
-                // timeline, ...). Hide it instantly so it doesn't linger over the seek.
-                playerUi.hideControls(0, 0)
                 // The framework path performs the first seek from onDown() once isDoubleTapping is
                 // set. Since our mode switch happens here on tap up (after onDown() already ran),
-                // trigger that first seek explicitly.
+                // trigger that first seek explicitly. (onDoubleTap above already took care of
+                // hiding the controls overlay when playing.)
                 doubleTapControls?.onDoubleTapProgressDown(portion)
             }
             return true
