@@ -69,6 +69,7 @@ import androidx.preference.PreferenceManager;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.ExoPlayer;
+import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player.PositionInfo;
@@ -76,8 +77,8 @@ import com.google.android.exoplayer2.SeekParameters;
 import com.google.android.exoplayer2.analytics.AnalyticsListener;
 import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.Tracks;
+import com.google.android.exoplayer2.decoder.DecoderReuseEvaluation;
 import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector;
-import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
 import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
 import com.google.android.exoplayer2.source.LoadEventInfo;
 import com.google.android.exoplayer2.source.MediaLoadData;
@@ -148,7 +149,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
@@ -325,11 +325,24 @@ public final class Player implements PlaybackListener, Listener {
                                               @NonNull final String decoderName,
                                               final long initializedTimestampMs,
                                               final long initializationDurationMs) {
-            if (DEBUG) {
-                Log.d(TAG, "Lag probe - video decoder initialized: " + decoderName
-                        + " in " + initializationDurationMs + "ms");
-            }
+            Log.i(TAG, "Playback codec - video decoder initialized: " + decoderName
+                    + " (" + classifyVideoDecoder(decoderName) + ")"
+                    + " in " + initializationDurationMs + "ms"
+                    + ", tunneling=" + trackSelector.getParameters().tunnelingEnabled);
             maybeDisableTunnelingForDecoder(decoderName);
+        }
+
+        @Override
+        public void onVideoInputFormatChanged(@NonNull final EventTime eventTime,
+                                              @NonNull final Format format,
+                                              @Nullable final DecoderReuseEvaluation
+                                                      decoderReuseEvaluation) {
+            Log.i(TAG, "Playback codec - video input format: mime=" + format.sampleMimeType
+                    + ", codecs=" + format.codecs
+                    + ", width=" + format.width
+                    + ", height=" + format.height
+                    + ", frameRate=" + format.frameRate
+                    + ", bitrate=" + format.bitrate);
         }
 
         @Override
@@ -469,7 +482,7 @@ public final class Player implements PlaybackListener, Listener {
                 prefs.getBoolean(
                         context.getString(
                                 R.string.use_exoplayer_decoder_fallback_key), false));
-        renderFactory.setMediaCodecSelector(getMediaCodecSelectorForDevice());
+        renderFactory.setMediaCodecSelector(MediaCodecSelector.DEFAULT);
 
         if (DeviceUtils.isTensorG4()) {
             // Tensor G4 devices may suffer periodic codec callback/reclaim stalls with async
@@ -1528,33 +1541,17 @@ public final class Player implements PlaybackListener, Listener {
     }
 
     @NonNull
-    private MediaCodecSelector getMediaCodecSelectorForDevice() {
-        if (!DeviceUtils.isTensorG4()) {
-            return MediaCodecSelector.DEFAULT;
+    private static String classifyVideoDecoder(@NonNull final String decoderName) {
+        final String normalized = decoderName.toLowerCase(Locale.US);
+        if (normalized.startsWith("c2.android.")
+                || normalized.startsWith("omx.google.")) {
+            return "software";
         }
-
-        return (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
-            final List<MediaCodecInfo> infos = MediaCodecSelector.DEFAULT.getDecoderInfos(
-                    mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
-            if (!"video/avc".equals(mimeType) || infos.size() <= 1) {
-                return infos;
-            }
-
-            final List<MediaCodecInfo> filtered = infos.stream()
-                    .filter(info -> !info.name.toLowerCase(Locale.US)
-                            .startsWith("c2.exynos.h264.decoder"))
-                    .collect(Collectors.toList());
-            if (filtered.isEmpty() || filtered.size() == infos.size()) {
-                return infos;
-            }
-
-            Log.w(TAG, "Lag probe - Tensor G4 filtered Exynos AVC decoder. "
-                    + "Before=" + infos.stream().map(info -> info.name)
-                    .collect(Collectors.joining(", "))
-                    + " | After=" + filtered.stream().map(info -> info.name)
-                    .collect(Collectors.joining(", ")));
-            return filtered;
-        };
+        if (normalized.startsWith("c2.exynos.")
+                || normalized.startsWith("c2.google.av1.")) {
+            return "hardware";
+        }
+        return "unknown";
     }
 
     private void maybeDisableTunnelingForDecoder(@NonNull final String decoderName) {

@@ -247,6 +247,24 @@ public final class ListHelper {
                 videoOnlyStreams, ascendingOrder, preferVideoOnlyStreams);
     }
 
+    @NonNull
+    public static List<VideoStream> getSortedStreamVideosList(
+            @NonNull final Context context,
+            @Nullable final MediaFormat defaultFormat,
+            @Nullable final List<VideoStream> videoStreams,
+            @Nullable final List<VideoStream> videoOnlyStreams,
+            final boolean ascendingOrder,
+            final boolean preferVideoOnlyStreams) {
+        final SharedPreferences preferences =
+                PreferenceManager.getDefaultSharedPreferences(context);
+
+        final boolean showHigherResolutions = preferences.getBoolean(
+                context.getString(R.string.show_higher_resolutions_key), true);
+
+        return getSortedStreamVideosList(defaultFormat, showHigherResolutions, videoStreams,
+                videoOnlyStreams, ascendingOrder, preferVideoOnlyStreams);
+    }
+
     /**
      * Get a sorted list containing a set of default resolution info
      * and additional resolution info if showHigherResolutions is true.
@@ -460,7 +478,7 @@ public final class ListHelper {
      * @return the sorted list
      */
     @NonNull
-    static List<VideoStream> getSortedStreamVideosList(
+    public static List<VideoStream> getSortedStreamVideosList(
             @Nullable final MediaFormat defaultFormat,
             final boolean showHigherResolutions,
             @Nullable final List<VideoStream> videoStreams,

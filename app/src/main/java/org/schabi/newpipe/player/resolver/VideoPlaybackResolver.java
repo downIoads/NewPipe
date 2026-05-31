@@ -21,6 +21,7 @@ import org.schabi.newpipe.player.helper.PlayerDataSource;
 import org.schabi.newpipe.player.helper.PlayerHelper;
 import org.schabi.newpipe.player.mediaitem.MediaItemTag;
 import org.schabi.newpipe.player.mediaitem.StreamInfoTag;
+import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.ListHelper;
 
 import java.util.ArrayList;
@@ -83,9 +84,12 @@ public class VideoPlaybackResolver implements PlaybackResolver {
         final List<MediaSource> mediaSources = new ArrayList<>();
 
         // Create video stream source
-        final List<VideoStream> videoStreamsList = ListHelper.getSortedStreamVideosList(context,
-                getPlayableStreams(info.getVideoStreams(), info.getServiceId()),
-                getPlayableStreams(info.getVideoOnlyStreams(), info.getServiceId()), false, true);
+        final List<VideoStream> playableVideoStreams =
+                getPlayableStreams(info.getVideoStreams(), info.getServiceId());
+        final List<VideoStream> playableVideoOnlyStreams =
+                getPlayableStreams(info.getVideoOnlyStreams(), info.getServiceId());
+        final List<VideoStream> videoStreamsList = getSortedPlaybackVideoStreams(
+                playableVideoStreams, playableVideoOnlyStreams);
         final List<AudioStream> audioStreamsList =
                 getFilteredAudioStreams(context, info.getAudioStreams());
 
@@ -111,6 +115,12 @@ public class VideoPlaybackResolver implements PlaybackResolver {
                 .orElse(null);
 
         if (video != null) {
+            Log.i(TAG, "resolve(): selected video format=" + video.getFormat()
+                    + ", codec=" + video.getCodec()
+                    + ", resolution=" + video.getResolution()
+                    + ", fps=" + video.getFps()
+                    + ", bitrate=" + video.getBitrate()
+                    + ", videoOnly=" + video.isVideoOnly());
             try {
                 final MediaSource streamSource = PlaybackResolver.buildMediaSource(
                         dataSource, video, info, PlaybackResolver.cacheKeyOf(info, video), tag);
@@ -179,6 +189,23 @@ public class VideoPlaybackResolver implements PlaybackResolver {
         } else {
             return new MergingMediaSource(true, mediaSources.toArray(new MediaSource[0]));
         }
+    }
+
+    @NonNull
+    private List<VideoStream> getSortedPlaybackVideoStreams(
+            @NonNull final List<VideoStream> videoStreams,
+            @NonNull final List<VideoStream> videoOnlyStreams) {
+        if (DeviceUtils.isTensorG4()) {
+            final List<VideoStream> tensorG4Streams = ListHelper.getSortedStreamVideosList(
+                    context, MediaFormat.WEBM, videoStreams, videoOnlyStreams, false, true);
+            if (!tensorG4Streams.isEmpty()) {
+                Log.i(TAG, "resolve(): Tensor G4 playback prefers WebM/VP9 candidates");
+                return tensorG4Streams;
+            }
+        }
+
+        return ListHelper.getSortedStreamVideosList(context,
+                videoStreams, videoOnlyStreams, false, true);
     }
 
     /**
