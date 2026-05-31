@@ -113,7 +113,42 @@ abstract class BasePlayerGestureListener(
             Log.d(TAG, "onDoubleTap called with e = [$e]")
         }
 
+        // A fast double tap was recognized by the framework, so drop any pending slow-tap state
+        // to avoid a following single tap being paired with it.
+        lastTapPortion = null
         onDoubleTap(e, getDisplayPortion(e))
+        return true
+    }
+
+    override fun onSingleTapUp(e: MotionEvent): Boolean {
+        // The framework's GestureDetector only treats two taps as a double tap when they happen
+        // within ViewConfiguration.getDoubleTapTimeout() (~300ms, not configurable), which is too
+        // strict for comfortable double-tap seeking. To make it a bit more forgiving we recognize
+        // a slightly slower second tap on the same side here and convert it into a double tap.
+        if (isDoubleTapping) {
+            // Already in a seek session; further taps are handled as continuation via onDown().
+            return true
+        }
+
+        val portion = getDisplayPortion(e)
+        val withinWindow = e.eventTime - lastTapUpTime <= DOUBLE_TAP_DETECT_WINDOW
+        if (lastTapPortion == portion && withinWindow) {
+            lastTapPortion = null
+            onDoubleTap(e, portion)
+            if (portion == DisplayPortion.LEFT || portion == DisplayPortion.RIGHT) {
+                // The preceding single tap may have just popped up the controls overlay (title,
+                // timeline, ...). Hide it instantly so it doesn't linger over the seek.
+                playerUi.hideControls(0, 0)
+                // The framework path performs the first seek from onDown() once isDoubleTapping is
+                // set. Since our mode switch happens here on tap up (after onDown() already ran),
+                // trigger that first seek explicitly.
+                doubleTapControls?.onDoubleTapProgressDown(portion)
+            }
+            return true
+        }
+
+        lastTapPortion = portion
+        lastTapUpTime = e.eventTime
         return true
     }
 
@@ -135,6 +170,11 @@ abstract class BasePlayerGestureListener(
 
     private var doubleTapDelay = DOUBLE_TAP_DELAY
     private val doubleTapHandler: Handler = Handler(Looper.getMainLooper())
+
+    // Tracks the previous discrete tap so a slightly-too-slow second tap can still be recognized
+    // as a double tap (see onSingleTapUp), widening the framework's strict ~300ms window.
+    private var lastTapPortion: DisplayPortion? = null
+    private var lastTapUpTime = 0L
 
     private fun startMultiDoubleTap(e: MotionEvent) {
         if (!isDoubleTapping) {
@@ -189,5 +229,9 @@ abstract class BasePlayerGestureListener(
 
         private const val DOUBLE_TAP = "doubleTap"
         private const val DOUBLE_TAP_DELAY = 550L
+
+        // Max time between two taps for our fallback detector to still treat them as a double tap.
+        // Wider than the framework's non-configurable ~300ms timeout to make seeking less fiddly.
+        private const val DOUBLE_TAP_DETECT_WINDOW = 500L
     }
 }
