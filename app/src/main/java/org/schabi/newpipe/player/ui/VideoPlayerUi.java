@@ -886,11 +886,15 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
     public void onPaused() {
         super.onPaused();
 
+        // Always hide the loading panel when ending up paused. Otherwise double tap seeking while
+        // paused leaves the buffering spinner stuck forever: onBuffering() shows it, and since
+        // onPlaying() never runs while paused, this is the only place that can hide it again.
+        binding.loadingPanel.setVisibility(View.GONE);
+
         // Don't let UI elements popup during double tap seeking. This state is entered sometimes
         // during seeking/loading. This if-else check ensures that the controls aren't popping up.
         if (!playerGestureListener.isDoubleTapping()) {
             showControls(400);
-            binding.loadingPanel.setVisibility(View.GONE);
 
             animate(binding.playPauseButton, false, 80, AnimationType.SCALE_AND_ALPHA, 0,
                     () -> {
