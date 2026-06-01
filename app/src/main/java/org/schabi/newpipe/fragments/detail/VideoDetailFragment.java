@@ -29,6 +29,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -219,6 +220,10 @@ public final class VideoDetailFragment
     private final CompositeDisposable disposables = new CompositeDisposable();
     @Nullable
     private Disposable positionSubscriber = null;
+    private long detailLoadTraceId = 0L;
+    private long detailLoadTraceStartMs = -1L;
+    private boolean autoplayStartedForCurrentTrace = false;
+    private boolean playbackIntentSentForCurrentTrace = false;
 
     private BottomSheetBehavior<FrameLayout> bottomSheetBehavior;
     private BottomSheetBehavior.BottomSheetCallback bottomSheetCallback;
@@ -251,6 +256,8 @@ public final class VideoDetailFragment
     public void onPlayerConnected(@NonNull final Player connectedPlayer,
                                   final boolean playAfterConnect) {
         player = connectedPlayer;
+        logDetailLoadTrace("onPlayerConnected playAfterConnect=" + playAfterConnect
+                + " playbackIntentSent=" + playbackIntentSentForCurrentTrace);
 
         // It will do nothing if the player is not in fullscreen mode
         hideSystemUiIfNeeded();
@@ -272,10 +279,11 @@ public final class VideoDetailFragment
             playerUi.ifPresent(MainPlayerUi::toggleFullscreen);
         }
 
-        if (playAfterConnect
+        if ((playAfterConnect && !playbackIntentSentForCurrentTrace)
                 || (currentInfo != null
                 && isAutoplayEnabled()
-                && playerUi.isEmpty())) {
+                && playerUi.isEmpty()
+                && !playbackIntentSentForCurrentTrace)) {
             autoPlayEnabled = true; // forcefully start playing
             openVideoPlayerAutoFullscreen();
         }
@@ -798,6 +806,12 @@ public final class VideoDetailFragment
                                    @Nullable final String newUrl,
                                    @NonNull final String newTitle,
                                    @Nullable final PlayQueue newQueue) {
+        PersistentPlayerLogger.log(activity, "VideoDetailFragment.selectAndLoadVideo "
+                + "oldTitle=" + title
+                + " newTitle=" + newTitle
+                + " oldUrl=" + url
+                + " newUrl=" + newUrl
+                + " currentInfo=" + (currentInfo == null ? "null" : currentInfo.getName()));
         if (isPlayerAvailable() && newQueue != null && playQueue != null
                 && playQueue.getItem() != null && !playQueue.getItem().getUrl().equals(newUrl)) {
             // Preloading can be disabled since playback is surely being replaced.
@@ -813,6 +827,12 @@ public final class VideoDetailFragment
                                                         final long delay) {
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (activity == null) {
+                return;
+            }
+            if (!streamInfoMatchesCurrentUrl(info)) {
+                logDetailLoadTrace("prepareAndHandleInfo.skipStale "
+                        + "infoUrl=" + info.getUrl()
+                        + " currentUrl=" + url);
                 return;
             }
             // Data can already be drawn, don't spend time twice
@@ -847,41 +867,82 @@ public final class VideoDetailFragment
 
     @Override
     public void startLoading(final boolean forceLoad) {
+        beginDetailLoadTrace("startLoading", forceLoad, stack.isEmpty());
+        clearCurrentLoadBeforeShowingLoading();
         super.startLoading(forceLoad);
 
         initTabs();
-        currentInfo = null;
-        if (currentWorker != null) {
-            currentWorker.dispose();
-        }
-
         runWorker(forceLoad, stack.isEmpty());
     }
 
     private void startLoading(final boolean forceLoad, final boolean addToBackStack) {
+        beginDetailLoadTrace("startLoadingBackStack", forceLoad, addToBackStack);
+        clearCurrentLoadBeforeShowingLoading();
         super.startLoading(forceLoad);
 
         initTabs();
+        runWorker(forceLoad, addToBackStack);
+    }
+
+    private void clearCurrentLoadBeforeShowingLoading() {
         currentInfo = null;
         if (currentWorker != null) {
             currentWorker.dispose();
         }
+    }
 
-        runWorker(forceLoad, addToBackStack);
+    private void beginDetailLoadTrace(@NonNull final String reason,
+                                      final boolean forceLoad,
+                                      final boolean addToBackStack) {
+        detailLoadTraceId++;
+        detailLoadTraceStartMs = SystemClock.elapsedRealtime();
+        autoplayStartedForCurrentTrace = false;
+        playbackIntentSentForCurrentTrace = false;
+        logDetailLoadTrace(reason
+                + " forceLoad=" + forceLoad
+                + " addToBackStack=" + addToBackStack
+                + " title=" + title
+                + " url=" + url);
+    }
+
+    private void logDetailLoadTrace(@NonNull final String event) {
+        final long elapsedMs = detailLoadTraceStartMs < 0
+                ? -1
+                : SystemClock.elapsedRealtime() - detailLoadTraceStartMs;
+        PersistentPlayerLogger.log(activity, "DetailLoadTrace "
+                + "id=" + detailLoadTraceId
+                + " +" + elapsedMs + "ms "
+                + event);
+    }
+
+    private boolean streamInfoMatchesCurrentUrl(@NonNull final StreamInfo info) {
+        return Objects.equals(info.getUrl(), url) || Objects.equals(info.getOriginalUrl(), url);
     }
 
     private void runWorker(final boolean forceLoad, final boolean addToBackStack) {
         final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(activity);
+        final boolean cached = ExtractorHelper.isCached(serviceId, url, InfoCache.Type.STREAM);
         PersistentPlayerLogger.log(activity, "VideoDetailFragment.runWorker.start "
                 + "serviceId=" + serviceId
                 + " forceLoad=" + forceLoad
                 + " addToBackStack=" + addToBackStack
+                + " cached=" + cached
                 + " url=" + url);
+        logDetailLoadTrace("extractor.start cached=" + cached);
+        if (isAutoplayEnabled() && !isPlayerServiceAvailable()) {
+            logDetailLoadTrace("warmPlayerService.start");
+            playerHolder.startService(false, this);
+        }
         currentWorker = ExtractorHelper.getStreamInfo(serviceId, url, forceLoad)
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(result -> {
                     isLoading.set(false);
+                    logDetailLoadTrace("extractor.success "
+                            + "streamType=" + result.getStreamType()
+                            + " audioStreams=" + result.getAudioStreams().size()
+                            + " videoStreams=" + result.getVideoStreams().size()
+                            + " videoOnlyStreams=" + result.getVideoOnlyStreams().size());
                     PersistentPlayerLogger.log(activity, "VideoDetailFragment.runWorker.success "
                             + "serviceId=" + serviceId
                             + " streamType=" + result.getStreamType()
@@ -894,6 +955,12 @@ public final class VideoDetailFragment
                             getString(R.string.show_age_restricted_content), false)) {
                         hideAgeRestrictedContent();
                     } else {
+                        currentInfo = result;
+                        setInitialData(result.getServiceId(), result.getOriginalUrl(),
+                                result.getName(), playQueue);
+                        if (isAutoplayEnabled()) {
+                            startAutoplayForCurrentTrace("afterExtractorBeforeUi");
+                        }
                         handleResult(result);
                         showContent();
                         if (addToBackStack) {
@@ -906,11 +973,12 @@ public final class VideoDetailFragment
                             }
                         }
 
-                        if (isAutoplayEnabled()) {
-                            openVideoPlayerAutoFullscreen();
-                        }
+                        startAutoplayForCurrentTrace("afterUi");
                     }
                 }, throwable -> {
+                    logDetailLoadTrace("extractor.failed "
+                            + throwable.getClass().getSimpleName()
+                            + ": " + throwable.getMessage());
                     PersistentPlayerLogger.log(activity, "VideoDetailFragment.runWorker.failed "
                             + throwable.getClass().getSimpleName() + ": "
                             + throwable.getMessage());
@@ -922,6 +990,15 @@ public final class VideoDetailFragment
                     showError(new ErrorInfo(throwable, UserAction.REQUESTED_STREAM,
                             url == null ? "no url" : url, serviceId, url));
                 });
+    }
+
+    private void startAutoplayForCurrentTrace(@NonNull final String reason) {
+        if (autoplayStartedForCurrentTrace || !isAutoplayEnabled()) {
+            return;
+        }
+        autoplayStartedForCurrentTrace = true;
+        logDetailLoadTrace("autoplay.start reason=" + reason);
+        openVideoPlayerAutoFullscreen();
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -938,7 +1015,7 @@ public final class VideoDetailFragment
 
         if (shouldShowComments()) {
             pageAdapter.addFragment(
-                    CommentsFragment.getInstance(serviceId, url, title), COMMENTS_TAB_TAG);
+                    EmptyFragment.newInstance(false), COMMENTS_TAB_TAG);
             tabIcons.add(R.drawable.ic_comment);
             tabContentDescriptions.add(R.string.comments_tab_description);
         }
@@ -1016,20 +1093,25 @@ public final class VideoDetailFragment
         if (!shouldShowComments()) {
             return;
         }
+        logDetailLoadTrace("commentsTab.refresh forceLoad=" + forceLoad);
         final int commentsTabPos = pageAdapter.getItemPositionByTitle(COMMENTS_TAB_TAG);
         if (commentsTabPos < 0) {
             return;
         }
         final Fragment fragment = pageAdapter.getItem(commentsTabPos);
-        if (!(fragment instanceof CommentsFragment)) {
-            return;
-        }
 
         final String commentsUrl = isEmpty(info.getOriginalUrl())
                 ? info.getUrl()
                 : info.getOriginalUrl();
-        ((CommentsFragment) fragment).updateStream(info.getServiceId(), commentsUrl,
-                info.getName(), forceLoad);
+        if (fragment instanceof CommentsFragment) {
+            ((CommentsFragment) fragment).updateStream(info.getServiceId(), commentsUrl,
+                    info.getName(), forceLoad);
+        } else {
+            pageAdapter.updateItem(commentsTabPos, CommentsFragment.getInstance(
+                    info.getServiceId(), commentsUrl, info.getName()));
+            pageAdapter.notifyDataSetUpdate();
+            updateTabIconsAndContentDescriptions();
+        }
     }
 
     private boolean shouldShowComments() {
@@ -1240,12 +1322,18 @@ public final class VideoDetailFragment
             PersistentPlayerLogger.log(activity, "VideoDetailFragment.openMainPlayer.startService "
                     + "autoPlayEnabled=" + autoPlayEnabled
                     + " currentInfoNull=" + (currentInfo == null));
+            logDetailLoadTrace("openMainPlayer.startService currentInfoNull="
+                    + (currentInfo == null));
             playerHolder.startService(autoPlayEnabled, this);
             return;
         }
         if (currentInfo == null) {
             PersistentPlayerLogger.log(activity,
                     "VideoDetailFragment.openMainPlayer.skipped currentInfoNull");
+            return;
+        }
+        if (autoplayStartedForCurrentTrace && playbackIntentSentForCurrentTrace) {
+            logDetailLoadTrace("openMainPlayer.skipped duplicatePlaybackIntent");
             return;
         }
 
@@ -1257,11 +1345,16 @@ public final class VideoDetailFragment
                 NavigationHelper.getPlayerIntent(context, PlayerService.class, queue,
                                 PlayerIntentType.AllOthers)
                         .putExtra(Player.PLAY_WHEN_READY, autoPlayEnabled)
-                        .putExtra(Player.RESUME_PLAYBACK, true);
+                        .putExtra(Player.RESUME_PLAYBACK, true)
+                        .putExtra(Player.PLAYBACK_START_TRACE_ID, detailLoadTraceId)
+                        .putExtra(Player.PLAYBACK_START_TRACE_ELAPSED_REALTIME_MS,
+                                detailLoadTraceStartMs);
         PersistentPlayerLogger.log(activity, "VideoDetailFragment.openMainPlayer.intent "
                 + "autoPlayEnabled=" + autoPlayEnabled
                 + " queueSize=" + queue.size()
                 + " currentInfo=" + currentInfo.getName());
+        logDetailLoadTrace("openMainPlayer.intent queueSize=" + queue.size());
+        playbackIntentSentForCurrentTrace = true;
         ContextCompat.startForegroundService(activity, playerIntent);
     }
 
@@ -1556,6 +1649,8 @@ public final class VideoDetailFragment
     @Override
     public void showLoading() {
 
+        logDetailLoadTrace("showLoading title=" + title
+                + " cached=" + ExtractorHelper.isCached(serviceId, url, InfoCache.Type.STREAM));
         super.showLoading();
 
         //if data is already cached, transition from VISIBLE -> INVISIBLE -> VISIBLE is not required
@@ -1592,6 +1687,7 @@ public final class VideoDetailFragment
 
     @Override
     public void handleResult(@NonNull final StreamInfo info) {
+        logDetailLoadTrace("handleResult.start title=" + info.getName());
         super.handleResult(info);
 
         currentInfo = info;
@@ -1713,6 +1809,10 @@ public final class VideoDetailFragment
         binding.detailControlsPopup.setVisibility(noVideoStreams ? View.GONE : View.VISIBLE);
         binding.detailThumbnailPlayButton.setImageResource(
                 noVideoStreams ? R.drawable.ic_headset_shadow : R.drawable.ic_play_arrow_shadow);
+        logDetailLoadTrace("handleResult.end controlsVisible background="
+                + (binding.detailControlsBackground.getVisibility() == View.VISIBLE)
+                + " popup=" + (binding.detailControlsPopup.getVisibility() == View.VISIBLE)
+                + " download=" + (binding.detailControlsDownload.getVisibility() == View.VISIBLE));
     }
 
     private void displayUploaderAsSubChannel(final StreamInfo info) {
@@ -1923,6 +2023,17 @@ public final class VideoDetailFragment
 
     @Override
     public void onMetadataUpdate(final StreamInfo info, final PlayQueue queue) {
+        final boolean matchesCurrentUrl = streamInfoMatchesCurrentUrl(info);
+        if ((isLoading.get() || playbackIntentSentForCurrentTrace) && !matchesCurrentUrl) {
+            logDetailLoadTrace("onMetadataUpdate.skipStaleWhileLoading "
+                    + "infoTitle=" + info.getName()
+                    + " infoUrl=" + info.getUrl()
+                    + " currentUrl=" + url);
+            return;
+        }
+        if (matchesCurrentUrl) {
+            playbackIntentSentForCurrentTrace = false;
+        }
         final StackItem item = findQueueInStack(queue);
         if (item != null) {
             // When PlayQueue can have multiple streams (PlaylistPlayQueue or ChannelPlayQueue)

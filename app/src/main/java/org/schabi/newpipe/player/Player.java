@@ -187,6 +187,9 @@ public final class Player implements PlaybackListener, Listener {
     public static final String PLAYER_TYPE = "player_type";
     public static final String PLAYER_INTENT_TYPE = "player_intent_type";
     public static final String PLAYER_INTENT_DATA = "player_intent_data";
+    public static final String PLAYBACK_START_TRACE_ID = "playback_start_trace_id";
+    public static final String PLAYBACK_START_TRACE_ELAPSED_REALTIME_MS =
+            "playback_start_trace_elapsed_realtime_ms";
 
     /*//////////////////////////////////////////////////////////////////////////
     // Time constants
@@ -263,6 +266,9 @@ public final class Player implements PlaybackListener, Listener {
     private long bufferingStartElapsedRealtimeMs = -1L;
     private int bufferingStartPositionMs = C.INDEX_UNSET;
     private boolean mediaTunnelingDisabledByDecoderProbe = false;
+    private long playbackStartTraceId = -1L;
+    private long playbackStartTraceStartMs = -1L;
+    private boolean playbackStartFirstFrameLogged = false;
 
     /*//////////////////////////////////////////////////////////////////////////
     // UIs, listeners and disposables
@@ -557,6 +563,8 @@ public final class Player implements PlaybackListener, Listener {
 
     @SuppressWarnings("MethodLength")
     public void handleIntent(@NonNull final Intent intent) {
+        updatePlaybackStartTrace(intent);
+        logPlaybackStartTrace("handleIntent.start");
         PersistentPlayerLogger.log(context, "Player.handleIntent.start "
                 + "playerType=" + playerType
                 + " playQueueNull=" + (playQueue == null)
@@ -674,8 +682,12 @@ public final class Player implements PlaybackListener, Listener {
 
         final PlayQueue newQueue = getPlayQueueFromCache(intent);
         if (newQueue == null) {
+            logPlaybackStartTrace("handleIntent.noQueue");
             return;
         }
+        logPlaybackStartTrace("handleIntent.queueReady "
+                + "newQueueSize=" + newQueue.size()
+                + " currentQueueSize=" + (playQueue == null ? -1 : playQueue.size()));
 
         // branching parameters for below
         final boolean samePlayQueue = playQueue != null && playQueue.equalStreamsAndIndex(newQueue);
@@ -699,8 +711,10 @@ public final class Player implements PlaybackListener, Listener {
             // and we should retry in this case
             if (simpleExoPlayer.getPlaybackState()
                     == com.google.android.exoplayer2.Player.STATE_IDLE) {
+                logPlaybackStartTrace("handleIntent.prepareSameTimestamp");
                 simpleExoPlayer.prepare();
             }
+            logPlaybackStartTrace("handleIntent.seekSameTimestamp");
             simpleExoPlayer.seekTo(playQueue.getIndex(), newQueue.getItem().getRecoveryPosition());
             simpleExoPlayer.setPlayWhenReady(playWhenReady);
 
@@ -713,8 +727,10 @@ public final class Player implements PlaybackListener, Listener {
             // and we should retry in this case
             if (simpleExoPlayer.getPlaybackState()
                     == com.google.android.exoplayer2.Player.STATE_IDLE) {
+                logPlaybackStartTrace("handleIntent.prepareSameQueue");
                 simpleExoPlayer.prepare();
             }
+            logPlaybackStartTrace("handleIntent.sameQueuePlayWhenReady");
             simpleExoPlayer.setPlayWhenReady(playWhenReady);
 
         } else if (intent.getBooleanExtra(RESUME_PLAYBACK, false)
@@ -736,6 +752,7 @@ public final class Player implements PlaybackListener, Listener {
                                     newQueue.setRecovery(newQueue.getIndex(),
                                             state.getProgressMillis());
                                 }
+                                logPlaybackStartTrace("handleIntent.resumePlayback.stateLoaded");
                                 initPlayback(newQueue, playWhenReady);
                             },
                             error -> {
@@ -743,16 +760,20 @@ public final class Player implements PlaybackListener, Listener {
                                     Log.w(TAG, "Failed to start playback", error);
                                 }
                                 // In case any error we can start playback without history
+                                logPlaybackStartTrace("handleIntent.resumePlayback.stateFailed "
+                                        + error.getClass().getSimpleName());
                                 initPlayback(newQueue, playWhenReady);
                             },
                             () -> {
                                 // Completed but not found in history
+                                logPlaybackStartTrace("handleIntent.resumePlayback.noHistory");
                                 initPlayback(newQueue, playWhenReady);
                             }
                     ));
         } else {
             // Good to go...
             // In a case of equal PlayQueues we can re-init old one but only when it is disposed
+            logPlaybackStartTrace("handleIntent.initPlayback samePlayQueue=" + samePlayQueue);
             initPlayback(samePlayQueue ? playQueue : newQueue, playWhenReady);
         }
 
@@ -817,6 +838,8 @@ public final class Player implements PlaybackListener, Listener {
 
     private void initPlayback(@NonNull final PlayQueue queue,
                               final boolean playOnReady) {
+        logPlaybackStartTrace("initPlayback.start queueSize=" + queue.size()
+                + " playOnReady=" + playOnReady);
         destroyPlayer();
         initPlayer(playOnReady);
         final boolean playbackSkipSilence = getPrefs().getBoolean(getContext().getString(
@@ -832,6 +855,7 @@ public final class Player implements PlaybackListener, Listener {
 
         applyVolume();
         notifyQueueUpdateToListeners();
+        logPlaybackStartTrace("initPlayback.end");
     }
 
     private void initPlayer(final boolean playOnReady) {
@@ -843,6 +867,7 @@ public final class Player implements PlaybackListener, Listener {
                 + " playerType=" + playerType
                 + " playQueueNull=" + (playQueue == null)
                 + " playQueueSize=" + (playQueue == null ? -1 : playQueue.size()));
+        logPlaybackStartTrace("initPlayer.start playOnReady=" + playOnReady);
 
         simpleExoPlayer = new ExoPlayer.Builder(context, renderFactory)
                 .setTrackSelector(trackSelector)
@@ -871,6 +896,7 @@ public final class Player implements PlaybackListener, Listener {
                     .setTunnelingEnabled(true));
         }
         Log.i(TAG, "Lag probe - media tunneling enabled=" + !disableMediaTunneling);
+        logPlaybackStartTrace("initPlayer.end tunnelingEnabled=" + !disableMediaTunneling);
     }
     //endregion
 
@@ -967,6 +993,7 @@ public final class Player implements PlaybackListener, Listener {
         }
 
         if (playQueue != null) {
+            logPlaybackStartTrace("reloadPlayQueueManager.create queueSize=" + playQueue.size());
             playQueueManager = new MediaSourceManager(this, playQueue);
         }
     }
@@ -1394,6 +1421,38 @@ public final class Player implements PlaybackListener, Listener {
         return totalSec / 60 + ":" + String.format(Locale.US, "%02d", totalSec % 60);
     }
 
+    private void updatePlaybackStartTrace(@NonNull final Intent intent) {
+        if (!intent.hasExtra(PLAYBACK_START_TRACE_ID)
+                || !intent.hasExtra(PLAYBACK_START_TRACE_ELAPSED_REALTIME_MS)) {
+            return;
+        }
+
+        final long newTraceId = intent.getLongExtra(PLAYBACK_START_TRACE_ID, -1L);
+        if (newTraceId != playbackStartTraceId) {
+            playbackStartTraceId = newTraceId;
+            playbackStartTraceStartMs = intent.getLongExtra(
+                    PLAYBACK_START_TRACE_ELAPSED_REALTIME_MS, -1L);
+            playbackStartFirstFrameLogged = false;
+        }
+    }
+
+    private void logPlaybackStartTrace(@NonNull final String event) {
+        if (playbackStartTraceId < 0 || playbackStartTraceStartMs < 0) {
+            return;
+        }
+
+        final long elapsedMs = SystemClock.elapsedRealtime() - playbackStartTraceStartMs;
+        PersistentPlayerLogger.log(context, "PlaybackStartTrace "
+                + "id=" + playbackStartTraceId
+                + " +" + elapsedMs + "ms "
+                + event
+                + " playerType=" + playerType
+                + " currentState=" + currentState
+                + " exoState=" + (exoPlayerIsNull() ? -1 : simpleExoPlayer.getPlaybackState())
+                + " playWhenReady=" + getPlayWhenReady()
+                + " url=" + getVideoUrl());
+    }
+
     //endregion
 
 
@@ -1454,12 +1513,15 @@ public final class Player implements PlaybackListener, Listener {
                 break;
             case com.google.android.exoplayer2.Player.STATE_BUFFERING: // 2
                 markBufferingStart();
+                logPlaybackStartTrace("exo.state.BUFFERING isPrepared=" + isPrepared);
                 if (isPrepared) {
                     changeState(STATE_BUFFERING);
                 }
                 logBufferingProbe("STATE_BUFFERING");
                 break;
             case com.google.android.exoplayer2.Player.STATE_READY: //3
+                logPlaybackStartTrace("exo.state.READY isPrepared=" + isPrepared
+                        + " playWhenReady=" + playWhenReady);
                 maybeLogBufferingEnd();
                 if (!isPrepared) {
                     isPrepared = true;
@@ -1643,7 +1705,9 @@ public final class Player implements PlaybackListener, Listener {
         if (currentState == STATE_BLOCKED) {
             changeState(STATE_BUFFERING);
         }
+        logPlaybackStartTrace("onPlaybackUnblock.setMediaSource");
         simpleExoPlayer.setMediaSource(mediaSource, false);
+        logPlaybackStartTrace("onPlaybackUnblock.prepare");
         simpleExoPlayer.prepare();
     }
 
@@ -1913,6 +1977,7 @@ public final class Player implements PlaybackListener, Listener {
                     Optional.ofNullable(currentMetadata)
                             .flatMap(MediaItemTag::getMaybeAudioTrack).orElse(null);
             currentMetadata = tag;
+            logPlaybackStartTrace("metadata.changed title=" + currentMetadata.getTitle());
 
             if (!currentMetadata.getErrors().isEmpty()) {
                 // new errors might have been added even if previousInfo == tag.getMaybeStreamInfo()
@@ -2101,6 +2166,10 @@ public final class Player implements PlaybackListener, Listener {
 
     @Override
     public void onRenderedFirstFrame() {
+        if (!playbackStartFirstFrameLogged) {
+            playbackStartFirstFrameLogged = true;
+            logPlaybackStartTrace("firstFrame");
+        }
         UIs.call(PlayerUi::onRenderedFirstFrame);
     }
 
