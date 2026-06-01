@@ -36,6 +36,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.webkit.WebView;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -57,7 +58,10 @@ import androidx.fragment.app.FragmentManager;
 import androidx.preference.PreferenceManager;
 
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.squareup.picasso.Callback;
 
+import org.schabi.newpipe.database.feed.model.FeedGroupEntity;
+import org.schabi.newpipe.database.stream.StreamWithState;
 import org.schabi.newpipe.databinding.ActivityMainBinding;
 import org.schabi.newpipe.databinding.DrawerHeaderBinding;
 import org.schabi.newpipe.databinding.DrawerLayoutBinding;
@@ -75,6 +79,7 @@ import org.schabi.newpipe.fragments.detail.VideoDetailFragment;
 import org.schabi.newpipe.fragments.list.comments.CommentRepliesFragment;
 import org.schabi.newpipe.fragments.list.playlist.PlaylistFragment;
 import org.schabi.newpipe.fragments.list.search.SearchFragment;
+import org.schabi.newpipe.local.feed.FeedDatabaseManager;
 import org.schabi.newpipe.local.feed.notifications.NotificationWorker;
 import org.schabi.newpipe.player.Player;
 import org.schabi.newpipe.player.event.OnKeyDownListener;
@@ -96,11 +101,18 @@ import org.schabi.newpipe.util.ServiceHelper;
 import org.schabi.newpipe.util.StateSaver;
 import org.schabi.newpipe.util.ThemeHelper;
 import org.schabi.newpipe.util.external_communication.ShareUtils;
+import org.schabi.newpipe.util.image.PicassoHelper;
 import org.schabi.newpipe.views.FocusOverlayView;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
+import io.reactivex.rxjava3.disposables.Disposable;
+import io.reactivex.rxjava3.schedulers.Schedulers;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
@@ -117,6 +129,17 @@ public class MainActivity extends AppCompatActivity {
     private boolean servicesShown = false;
 
     private BroadcastReceiver broadcastReceiver;
+
+    // Keeps the launch/splash screen visible until the first feed thumbnails have been
+    // prefetched into Picasso's memory cache, so the feed appears with thumbnails already
+    // shown instead of grey placeholders.
+    private final AtomicBoolean splashContentReady = new AtomicBoolean(false);
+    private Disposable splashPrefetchDisposable;
+    // private long splashStartNanos; // ytLog: uncomment with the logs below to time the hold
+    /** How many of the newest feed thumbnails to prefetch before revealing the UI. */
+    private static final int SPLASH_PREFETCH_COUNT = 12;
+    /** Never hold the splash longer than this, even if prefetching stalls (ms). */
+    private static final long SPLASH_MAX_HOLD_MS = 1500;
 
     private static final int ITEM_ID_SUBSCRIPTIONS = -1;
     private static final int ITEM_ID_FEED = -2;
@@ -164,6 +187,13 @@ public class MainActivity extends AppCompatActivity {
         toolbarLayoutBinding = mainBinding.toolbarLayout;
         setContentView(mainBinding.getRoot());
 
+        // Only hold the splash for thumbnail prefetch on a fresh, top-level launch (not on
+        // configuration changes or when restoring a back stack), so it never delays navigation.
+        if (savedInstanceState == null
+                && getSupportFragmentManager().getBackStackEntryCount() == 0) {
+            holdSplashForThumbnails();
+        }
+
         if (getSupportFragmentManager().getBackStackEntryCount() == 0) {
             initFragments();
         }
@@ -192,6 +222,96 @@ public class MainActivity extends AppCompatActivity {
         }
 
         MigrationManager.showUserInfoIfPresent(this);
+    }
+
+    /**
+     * Suspends the first draw of the content view (keeping the launch/splash screen visible)
+     * until the newest feed thumbnails have been prefetched into Picasso's memory cache, or a
+     * safety timeout elapses. This way the feed is revealed with its thumbnails already loaded
+     * instead of briefly showing grey placeholders.
+     */
+    private void holdSplashForThumbnails() {
+        final View content = findViewById(android.R.id.content);
+        if (content == null) {
+            return;
+        }
+        // splashStartNanos = System.nanoTime(); // ytLog: uncomment to time the splash hold
+
+        content.getViewTreeObserver().addOnPreDrawListener(
+                new ViewTreeObserver.OnPreDrawListener() {
+                    @Override
+                    public boolean onPreDraw() {
+                        if (splashContentReady.get()) {
+                            content.getViewTreeObserver().removeOnPreDrawListener(this);
+                            return true;
+                        }
+                        // suspend drawing -> the splash window background stays on screen
+                        return false;
+                    }
+                });
+
+        // Safety net: never hold the splash longer than SPLASH_MAX_HOLD_MS.
+        content.postDelayed(this::revealContent, SPLASH_MAX_HOLD_MS);
+
+        splashPrefetchDisposable = new FeedDatabaseManager(this)
+                // permissive filters so we prefetch a superset of whatever the feed will show
+                .getStreams(FeedGroupEntity.GROUP_ALL_ID, true, true, true)
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(this::prefetchThumbnails, e -> revealContent(), this::revealContent);
+    }
+
+    private void prefetchThumbnails(final List<StreamWithState> streams) {
+        final List<String> urls = new ArrayList<>();
+        for (final StreamWithState s : streams) {
+            final String url = s.getStream().getThumbnailUrl();
+            if (url != null && !url.isEmpty()) {
+                urls.add(url);
+                if (urls.size() >= SPLASH_PREFETCH_COUNT) {
+                    break;
+                }
+            }
+        }
+
+        if (urls.isEmpty()) {
+            revealContent();
+            return;
+        }
+
+        final AtomicInteger remaining = new AtomicInteger(urls.size());
+        final Callback callback = new Callback() {
+            @Override
+            public void onSuccess() {
+                if (remaining.decrementAndGet() <= 0) {
+                    revealContent();
+                }
+            }
+
+            @Override
+            public void onError(final Exception e) {
+                if (remaining.decrementAndGet() <= 0) {
+                    revealContent();
+                }
+            }
+        };
+
+        for (final String url : urls) {
+            PicassoHelper.loadThumbnail(url).fetch(callback);
+        }
+    }
+
+    /** Lets the suspended first draw proceed, revealing the UI behind the splash. */
+    private void revealContent() {
+        if (splashContentReady.compareAndSet(false, true)) {
+            // ytLog: uncomment (with the field above) to measure how long the splash was held
+            // Log.d(TAG, "splash held "
+            //         + ((System.nanoTime() - splashStartNanos) / 1_000_000) + "ms");
+            final View content = findViewById(android.R.id.content);
+            if (content != null) {
+                // trigger a new draw pass so the OnPreDrawListener fires again and returns true
+                content.invalidate();
+            }
+        }
     }
 
     private void warmUpWebViewOnce() {
@@ -520,6 +640,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (splashPrefetchDisposable != null) {
+            splashPrefetchDisposable.dispose();
+        }
         if (!isChangingConfigurations()) {
             StateSaver.clearStateFiles();
         }
