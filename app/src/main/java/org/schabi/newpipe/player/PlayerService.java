@@ -144,7 +144,14 @@ public final class PlayerService extends MediaBrowserServiceCompat {
             final boolean playerWasNull = (player == null);
             if (playerWasNull) {
                 // make sure the player exists, in case the service was resumed
+                // Player construction inflates ALL player UIs on the main thread and is a large,
+                // previously-silent chunk of cold-start time — trace its start/end.
+                final long playerCtorStart = android.os.SystemClock.elapsedRealtime();
+                PersistentPlayerLogger.log(this, "PlayerStartupTrace player.construct.start");
                 player = new Player(this, mediaSession, sessionConnector);
+                PersistentPlayerLogger.log(this, "PlayerStartupTrace player.construct.end "
+                        + "durationMs="
+                        + (android.os.SystemClock.elapsedRealtime() - playerCtorStart));
                 PersistentPlayerLogger.log(this, "PlayerService.createdPlayer");
             }
 
@@ -157,6 +164,14 @@ public final class PlayerService extends MediaBrowserServiceCompat {
             // shouldn't do anything.
             player.UIs().get(NotificationPlayerUi.class)
                     .ifPresent(NotificationPlayerUi::createNotificationAndStartForeground);
+
+            if (playerWasNull) {
+                // Build ExoPlayer after startForeground() has been satisfied, but before the
+                // first playback intent reaches Player.initPlayback(). In the normal detail-page
+                // flow this overlaps with extraction/prefetch, and in the direct-tap flow it lets
+                // the resume DB lookup overlap with the already-built ExoPlayer instance.
+                player.prewarmPlayer();
+            }
 
             if (playerWasNull && onPlayerStartedOrStopped != null) {
                 // notify that a new player was created (but do it after creating the foreground
@@ -180,6 +195,12 @@ public final class PlayerService extends MediaBrowserServiceCompat {
             return START_NOT_STICKY;
         }
 
+        dispatchIntentToPlayer(intent);
+
+        return START_NOT_STICKY;
+    }
+
+    private void dispatchIntentToPlayer(@NonNull final Intent intent) {
         final PlayerType oldPlayerType = player.getPlayerType();
         PersistentPlayerLogger.log(this, "PlayerService.handleIntent "
                 + "oldPlayerType=" + oldPlayerType);
@@ -187,8 +208,26 @@ public final class PlayerService extends MediaBrowserServiceCompat {
         player.handleIntentPost(oldPlayerType);
         player.UIs().get(MediaSessionPlayerUi.class)
                 .ifPresent(ui -> ui.handleMediaButtonIntent(intent));
+    }
 
-        return START_NOT_STICKY;
+    /**
+     * Deliver a playback intent to an already-running, already-foregrounded player <b>without</b>
+     * going through {@code startForegroundService()}, skipping its ~300-600ms system dispatch
+     * latency (a large, always-present chunk of video-startup time — see OPTIMIZATIONS.md). Only
+     * call this when the player already exists (the service is bound and was warmed/created
+     * earlier); otherwise it is a no-op returning {@code false} and the caller must fall back to
+     * {@code startForegroundService()} so the foreground-start contract is honored.
+     *
+     * @param intent the same player intent that would otherwise be sent to the service
+     * @return true if the intent was dispatched to the player, false if there is no player
+     */
+    public boolean handlePlaybackIntentDirectly(@NonNull final Intent intent) {
+        if (player == null) {
+            return false;
+        }
+        PersistentPlayerLogger.log(this, "PlayerService.handlePlaybackIntentDirectly");
+        dispatchIntentToPlayer(intent);
+        return true;
     }
 
     public void stopForImmediateReusing() {

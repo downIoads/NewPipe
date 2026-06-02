@@ -235,12 +235,33 @@ public class HistoryRecordManager {
     ///////////////////////////////////////////////////////
 
     public Maybe<StreamStateEntity> loadStreamState(final PlayQueueItem queueItem) {
+        // Timing split for the resume-position lookup on the playback critical path; read with
+        // `adb logcat -s PlayerStartupTrace`.
+        final long[] t0 = {android.os.SystemClock.elapsedRealtime()};
         return queueItem.getStream()
+                .doOnSuccess(info -> {
+                    final long now = android.os.SystemClock.elapsedRealtime();
+                    android.util.Log.i("PlayerStartupTrace",
+                            "loadStreamState.getStream durationMs=" + (now - t0[0]));
+                    t0[0] = now;
+                })
                 .map(info -> streamTable.upsert(new StreamEntity(info)))
+                .doOnSuccess(id -> {
+                    final long now = android.os.SystemClock.elapsedRealtime();
+                    android.util.Log.i("PlayerStartupTrace",
+                            "loadStreamState.upsert durationMs=" + (now - t0[0]));
+                    t0[0] = now;
+                })
                 .flatMapPublisher(streamStateTable::getState)
                 .firstElement()
                 .flatMap(list -> list.isEmpty() ? Maybe.empty() : Maybe.just(list.get(0)))
                 .filter(state -> state.isValid(queueItem.getDuration()))
+                .doOnComplete(() -> android.util.Log.i("PlayerStartupTrace",
+                        "loadStreamState.getState durationMs="
+                                + (android.os.SystemClock.elapsedRealtime() - t0[0])))
+                .doOnSuccess(s -> android.util.Log.i("PlayerStartupTrace",
+                        "loadStreamState.getState durationMs="
+                                + (android.os.SystemClock.elapsedRealtime() - t0[0])))
                 .subscribeOn(Schedulers.io());
     }
 

@@ -25,6 +25,9 @@ object PoTokenProviderImpl : PoTokenProvider {
     private var webPoTokenStreamingPot: String? = null
     private var webPoTokenGenerator: PoTokenGenerator? = null
 
+    @Volatile
+    private var warmUpStarted = false
+
     override fun getWebClientPoToken(videoId: String): PoTokenResult? {
         PersistentPlayerLogger.log(
             App.getApp(),
@@ -41,7 +44,11 @@ object PoTokenProviderImpl : PoTokenProvider {
         }
 
         try {
-            val result = getWebClientPoToken(videoId = videoId, forceRecreate = false)
+            val result = getWebClientPoToken(
+                videoId = videoId,
+                forceRecreate = false,
+                includeVideoStreamingPot = true
+            )
             PersistentPlayerLogger.log(
                 App.getApp(),
                 "PoTokenProvider.getWebClientPoToken.success videoId=${videoId.redactedVideoId()} " +
@@ -78,12 +85,44 @@ object PoTokenProviderImpl : PoTokenProvider {
         }
     }
 
+    fun warmUpAsync() {
+        if (!webViewSupported || webViewBadImpl || warmUpStarted) {
+            return
+        }
+        warmUpStarted = true
+        Thread {
+            try {
+                PersistentPlayerLogger.log(App.getApp(), "PoTokenProvider.warmUp.start")
+                getWebClientPoToken(
+                    videoId = "warmup",
+                    forceRecreate = false,
+                    includeVideoStreamingPot = false
+                )
+                PersistentPlayerLogger.log(App.getApp(), "PoTokenProvider.warmUp.success")
+            } catch (throwable: Throwable) {
+                warmUpStarted = false
+                PersistentPlayerLogger.log(
+                    App.getApp(),
+                    "PoTokenProvider.warmUp.failed " +
+                        "${throwable.javaClass.simpleName}: ${throwable.message}"
+                )
+            }
+        }.apply {
+            name = "NewPipe-PoTokenWarmUp"
+            start()
+        }
+    }
+
     /**
      * @param forceRecreate whether to force the recreation of [webPoTokenGenerator], to be used in
      * case the current [webPoTokenGenerator] threw an error last time
      * [PoTokenGenerator.generatePoToken] was called
      */
-    private fun getWebClientPoToken(videoId: String, forceRecreate: Boolean): PoTokenResult {
+    private fun getWebClientPoToken(
+        videoId: String,
+        forceRecreate: Boolean,
+        includeVideoStreamingPot: Boolean
+    ): PoTokenResult {
         // just a helper class since Kotlin does not have builtin support for 4-tuples
         data class Quadruple<T1, T2, T3, T4>(val t1: T1, val t2: T2, val t3: T3, val t4: T4)
 
@@ -155,7 +194,7 @@ object PoTokenProviderImpl : PoTokenProvider {
 
         return synchronized(WebPoTokenGenLock) {
             val playerPot: String
-            val gvsPot: String
+            val gvsPot: String?
             try {
                 // The WebView-backed generator uses shared JavaScript state and the bridge returns
                 // by identifier, so calls for the same video must not overlap.
@@ -177,20 +216,29 @@ object PoTokenProviderImpl : PoTokenProvider {
                     "PoTokenProvider.playerPot.success length=${playerPot.length}"
                 )
 
-                // GVS token: also video-ID-bound (YouTube experiment html5_generate_content_po_token).
-                // YouTube has shifted from visitorData-bound to video-ID-bound GVS tokens.
-                // This token is appended to streaming URLs as &pot=
-                PersistentPlayerLogger.log(
-                    App.getApp(),
-                    "PoTokenProvider.gvsPot.start videoId=${videoId.redactedVideoId()}"
-                )
-                gvsPot = poTokenGenerator.generatePoToken(videoId)
-                    .timeout(WEBVIEW_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    .blockingGet()
-                PersistentPlayerLogger.log(
-                    App.getApp(),
-                    "PoTokenProvider.gvsPot.success length=${gvsPot.length}"
-                )
+                if (includeVideoStreamingPot) {
+                    // GVS token: also video-ID-bound (YouTube experiment
+                    // html5_generate_content_po_token). This token is appended to WEB streaming
+                    // URLs as &pot=. Android player requests do not consume it, so skipping it
+                    // there removes one WebView round trip from startup.
+                    PersistentPlayerLogger.log(
+                        App.getApp(),
+                        "PoTokenProvider.gvsPot.start videoId=${videoId.redactedVideoId()}"
+                    )
+                    gvsPot = poTokenGenerator.generatePoToken(videoId)
+                        .timeout(WEBVIEW_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        .blockingGet()
+                    PersistentPlayerLogger.log(
+                        App.getApp(),
+                        "PoTokenProvider.gvsPot.success length=${gvsPot.length}"
+                    )
+                } else {
+                    gvsPot = null
+                    PersistentPlayerLogger.log(
+                        App.getApp(),
+                        "PoTokenProvider.gvsPot.skip reason=androidPlayerRequest"
+                    )
+                }
             } catch (throwable: Throwable) {
                 PersistentPlayerLogger.log(
                     App.getApp(),
@@ -207,7 +255,11 @@ object PoTokenProviderImpl : PoTokenProvider {
                     // content is lost
                     Log.e(TAG, "Failed to obtain poToken, retrying", throwable)
                     PersistentPlayerLogger.log(App.getApp(), "PoTokenProvider.generate.retry")
-                    return getWebClientPoToken(videoId = videoId, forceRecreate = true)
+                    return getWebClientPoToken(
+                        videoId = videoId,
+                        forceRecreate = true,
+                        includeVideoStreamingPot = includeVideoStreamingPot
+                    )
                 }
             }
 
@@ -240,7 +292,20 @@ object PoTokenProviderImpl : PoTokenProvider {
         // BotGuard-generated poTokens are bound to visitorData/videoId, not client type.
         // The same WEB BotGuard token works for ANDROID player requests.
         // Per yt-dlp: ANDROID GVS pot is not required if a player token is provided.
-        return getWebClientPoToken(videoId)
+        return try {
+            getWebClientPoToken(
+                videoId = videoId,
+                forceRecreate = false,
+                includeVideoStreamingPot = false
+            )
+        } catch (throwable: Throwable) {
+            PersistentPlayerLogger.log(
+                App.getApp(),
+                "PoTokenProvider.getAndroidClientPoToken.failed " +
+                    "${throwable.javaClass.simpleName}: ${throwable.message}"
+            )
+            null
+        }
     }
 
     override fun getIosClientPoToken(videoId: String): PoTokenResult? = null

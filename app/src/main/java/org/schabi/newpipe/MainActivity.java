@@ -69,6 +69,7 @@ import org.schabi.newpipe.databinding.InstanceSpinnerLayoutBinding;
 import org.schabi.newpipe.databinding.ToolbarLayoutBinding;
 import org.schabi.newpipe.error.ErrorUtil;
 import org.schabi.newpipe.extractor.NewPipe;
+import org.schabi.newpipe.extractor.ServiceList;
 import org.schabi.newpipe.extractor.StreamingService;
 import org.schabi.newpipe.extractor.comments.CommentsInfoItem;
 import org.schabi.newpipe.extractor.exceptions.ExtractionException;
@@ -99,6 +100,7 @@ import org.schabi.newpipe.util.ReleaseVersionUtil;
 import org.schabi.newpipe.util.SerializedCache;
 import org.schabi.newpipe.util.ServiceHelper;
 import org.schabi.newpipe.util.StateSaver;
+import org.schabi.newpipe.util.StreamPrefetcher;
 import org.schabi.newpipe.util.ThemeHelper;
 import org.schabi.newpipe.util.external_communication.ShareUtils;
 import org.schabi.newpipe.util.image.PicassoHelper;
@@ -129,6 +131,11 @@ public class MainActivity extends AppCompatActivity {
     private boolean servicesShown = false;
 
     private BroadcastReceiver broadcastReceiver;
+
+    // DEBUG-only receiver used by scripts/trace_video_startup.py to warm the StreamInfo cache
+    // before firing a VIEW intent, so the player-startup path can be measured as a cache hit
+    // (the realistic in-app "item was visible in a list, then tapped" flow). See StreamPrefetcher.
+    private BroadcastReceiver debugPrefetchReceiver;
 
     // Keeps the launch/splash screen visible until the first feed thumbnails have been
     // prefetched into Picasso's memory cache, so the feed appears with thumbnails already
@@ -222,6 +229,38 @@ public class MainActivity extends AppCompatActivity {
         }
 
         MigrationManager.showUserInfoIfPresent(this);
+
+        registerDebugPrefetchReceiver();
+    }
+
+    /**
+     * Registers a DEBUG-only broadcast receiver that warms the StreamInfo cache for a given url:
+     * <pre>
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.PREFETCH \
+     *       --es url '&lt;youtube-url&gt;' -p org.schabi.newpipe.debug
+     * </pre>
+     * This lets the trace tool measure the realistic in-app flow (item visible in a list →
+     * prefetched → tapped) where extraction is already a cache hit. See {@link StreamPrefetcher}.
+     */
+    private void registerDebugPrefetchReceiver() {
+        if (!DEBUG) {
+            return;
+        }
+        debugPrefetchReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(final Context context, final Intent intent) {
+                final String url = intent.getStringExtra("url");
+                if (url == null || url.isEmpty()) {
+                    return;
+                }
+                final int serviceId = intent.getIntExtra("serviceId",
+                        ServiceList.YouTube.getServiceId());
+                StreamPrefetcher.prefetch(serviceId, url);
+            }
+        };
+        final IntentFilter filter = new IntentFilter("org.schabi.newpipe.debug.PREFETCH");
+        ContextCompat.registerReceiver(this, debugPrefetchReceiver, filter,
+                ContextCompat.RECEIVER_EXPORTED);
     }
 
     /**
@@ -648,6 +687,10 @@ public class MainActivity extends AppCompatActivity {
         }
         if (broadcastReceiver != null) {
             unregisterReceiver(broadcastReceiver);
+        }
+        if (debugPrefetchReceiver != null) {
+            unregisterReceiver(debugPrefetchReceiver);
+            debugPrefetchReceiver = null;
         }
     }
 

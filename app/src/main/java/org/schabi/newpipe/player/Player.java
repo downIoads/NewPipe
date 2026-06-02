@@ -268,6 +268,7 @@ public final class Player implements PlaybackListener, Listener {
     private boolean mediaTunnelingDisabledByDecoderProbe = false;
     private long playbackStartTraceId = -1L;
     private long playbackStartTraceStartMs = -1L;
+    private long playbackStartTraceLastMs = -1L;
     private boolean playbackStartFirstFrameLogged = false;
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -740,6 +741,7 @@ public final class Player implements PlaybackListener, Listener {
                 && !newQueue.isEmpty()
                 && newQueue.getItem() != null
                 && newQueue.getItem().getRecoveryPosition() == PlayQueueItem.RECOVERY_UNSET) {
+            logPlaybackStartTrace("handleIntent.resumePlayback.dbStart");
             databaseUpdateDisposable.add(recordManager.loadStreamState(newQueue.getItem())
                     .observeOn(AndroidSchedulers.mainThread())
                     // Do not place initPlayback() in doFinally() because
@@ -840,8 +842,15 @@ public final class Player implements PlaybackListener, Listener {
                               final boolean playOnReady) {
         logPlaybackStartTrace("initPlayback.start queueSize=" + queue.size()
                 + " playOnReady=" + playOnReady);
-        destroyPlayer();
-        initPlayer(playOnReady);
+        if (canReusePrewarmedPlayer()) {
+            logPlaybackStartTrace("initPlayback.reusePrewarmedPlayer");
+            PersistentPlayerLogger.log(context, "Player.initPlayback.reusePrewarmedPlayer");
+            simpleExoPlayer.stop();
+            simpleExoPlayer.setPlayWhenReady(playOnReady);
+        } else {
+            destroyPlayer();
+            initPlayer(playOnReady);
+        }
         final boolean playbackSkipSilence = getPrefs().getBoolean(getContext().getString(
                 R.string.playback_skip_silence_key), getPlaybackSkipSilence());
         final PlaybackParameters savedParameters = retrievePlaybackParametersFromPrefs(this);
@@ -856,6 +865,27 @@ public final class Player implements PlaybackListener, Listener {
         applyVolume();
         notifyQueueUpdateToListeners();
         logPlaybackStartTrace("initPlayback.end");
+    }
+
+    private boolean canReusePrewarmedPlayer() {
+        return !exoPlayerIsNull()
+                && playQueue == null
+                && playQueueManager == null
+                && currentItem == null
+                && currentMetadata == null;
+    }
+
+    /**
+     * Builds the ExoPlayer instance during the service warmup window so a later tap can reuse it
+     * instead of paying the builder/media-session setup cost inside the tap-to-first-frame path.
+     */
+    public void prewarmPlayer() {
+        if (!exoPlayerIsNull()) {
+            return;
+        }
+        PersistentPlayerLogger.log(context, "Player.prewarmPlayer.start");
+        initPlayer(false);
+        PersistentPlayerLogger.log(context, "Player.prewarmPlayer.end");
     }
 
     private void initPlayer(final boolean playOnReady) {
@@ -1432,6 +1462,7 @@ public final class Player implements PlaybackListener, Listener {
             playbackStartTraceId = newTraceId;
             playbackStartTraceStartMs = intent.getLongExtra(
                     PLAYBACK_START_TRACE_ELAPSED_REALTIME_MS, -1L);
+            playbackStartTraceLastMs = playbackStartTraceStartMs;
             playbackStartFirstFrameLogged = false;
         }
     }
@@ -1441,10 +1472,16 @@ public final class Player implements PlaybackListener, Listener {
             return;
         }
 
-        final long elapsedMs = SystemClock.elapsedRealtime() - playbackStartTraceStartMs;
+        final long now = SystemClock.elapsedRealtime();
+        final long elapsedMs = now - playbackStartTraceStartMs;
+        // stepMs = time since the previous PlaybackStartTrace marker, so each player-startup
+        // phase's own cost is readable straight from logcat without subtracting timestamps.
+        final long stepMs = playbackStartTraceLastMs < 0 ? 0 : now - playbackStartTraceLastMs;
+        playbackStartTraceLastMs = now;
         PersistentPlayerLogger.log(context, "PlaybackStartTrace "
                 + "id=" + playbackStartTraceId
-                + " +" + elapsedMs + "ms "
+                + " +" + elapsedMs + "ms"
+                + " stepMs=" + stepMs + " "
                 + event
                 + " playerType=" + playerType
                 + " currentState=" + currentState

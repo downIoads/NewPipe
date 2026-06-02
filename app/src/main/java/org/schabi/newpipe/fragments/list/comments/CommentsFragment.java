@@ -1,6 +1,7 @@
 package org.schabi.newpipe.fragments.list.comments;
 
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -22,6 +23,8 @@ import org.schabi.newpipe.fragments.list.BaseListInfoFragment;
 import org.schabi.newpipe.info_list.ItemViewMode;
 import org.schabi.newpipe.ktx.ViewUtils;
 import org.schabi.newpipe.util.ExtractorHelper;
+import org.schabi.newpipe.util.InfoCache;
+import org.schabi.newpipe.util.PersistentPlayerLogger;
 
 import io.reactivex.rxjava3.core.Single;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
@@ -30,6 +33,7 @@ public class CommentsFragment extends BaseListInfoFragment<CommentsInfoItem, Com
     private final CompositeDisposable disposables = new CompositeDisposable();
 
     private TextView emptyStateDesc;
+    private long commentsLoadStartMs = -1L;
 
     public static CommentsFragment getInstance(final int serviceId, final String url,
                                                final String name) {
@@ -80,6 +84,16 @@ public class CommentsFragment extends BaseListInfoFragment<CommentsInfoItem, Com
         return ExtractorHelper.getCommentsInfo(serviceId, url, forceLoad);
     }
 
+    @Override
+    public void startLoading(final boolean forceLoad) {
+        commentsLoadStartMs = SystemClock.elapsedRealtime();
+        PersistentPlayerLogger.log(getContext(), "CommentsLoadTrace +0ms start"
+                + " forceLoad=" + forceLoad
+                + " cached=" + ExtractorHelper.isCached(serviceId, url, InfoCache.Type.COMMENTS)
+                + " url=" + url);
+        super.startLoading(forceLoad);
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
     // Contract
     //////////////////////////////////////////////////////////////////////////*/
@@ -87,6 +101,14 @@ public class CommentsFragment extends BaseListInfoFragment<CommentsInfoItem, Com
     @Override
     public void handleResult(@NonNull final CommentsInfo result) {
         super.handleResult(result);
+        final long elapsedMs = commentsLoadStartMs < 0
+                ? -1
+                : SystemClock.elapsedRealtime() - commentsLoadStartMs;
+        PersistentPlayerLogger.log(getContext(), "CommentsLoadTrace +" + elapsedMs + "ms loaded"
+                + " items=" + result.getRelatedItems().size()
+                + " hasNext=" + (result.getNextPage() != null)
+                + " disabled=" + result.isCommentsDisabled()
+                + " url=" + url);
 
         emptyStateDesc.setText(
                 result.isCommentsDisabled()
@@ -165,6 +187,9 @@ public class CommentsFragment extends BaseListInfoFragment<CommentsInfoItem, Com
         }
 
         setInitialData(newServiceId, newUrl, newName);
+        PersistentPlayerLogger.log(getContext(), "CommentsLoadTrace updateStream"
+                + " forceLoad=" + forceLoad
+                + " newUrl=" + newUrl);
         currentInfo = null;
         currentNextPage = null;
         if (currentWorker != null) {

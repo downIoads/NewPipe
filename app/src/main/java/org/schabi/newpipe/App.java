@@ -142,6 +142,7 @@ public class App extends Application {
         configureRxJavaErrorHandler();
 
         YoutubeStreamExtractor.setPoTokenProvider(PoTokenProviderImpl.INSTANCE);
+        PoTokenProviderImpl.INSTANCE.warmUpAsync();
         registerYoutubeStreamCacheInvalidator();
     }
 

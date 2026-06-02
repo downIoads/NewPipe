@@ -75,7 +75,11 @@ public final class PlayerHolder {
     }
 
     public boolean isPlayerOpen() {
-        return getPlayer().isPresent();
+        // A player that only exists (e.g. a prewarmed/idle player built during startup warmup)
+        // must NOT count as "open": it has no play queue and nothing to show. Otherwise the
+        // mini player would pop up at the bottom of the screen on app start before anything is
+        // playing. Require an actual play queue so only a player with real content counts.
+        return getPlayQueue().isPresent();
     }
 
     /**
@@ -139,6 +143,33 @@ public final class PlayerHolder {
         ContextCompat.startForegroundService(context, intent);
         serviceConnection.doPlayAfterConnect(playAfterConnect);
         bind(context);
+    }
+
+    /**
+     * Starts and binds the player service for startup prewarming without changing the currently
+     * registered UI listener. This lets list/touch prefetch build the Player/ExoPlayer ahead of a
+     * likely tap while preserving any fragment that is already listening to the service.
+     */
+    public void warmServiceForStartup() {
+        final Context context = getCommonContext();
+        if (playerService != null && playerService.getPlayer() != null) {
+            return;
+        }
+        if (DEBUG) {
+            Log.d(TAG, "warmServiceForStartup() called");
+        }
+
+        final Intent intent = new Intent(context, PlayerService.class);
+        intent.putExtra(PlayerService.SHOULD_START_FOREGROUND_EXTRA, true);
+        ContextCompat.startForegroundService(context, intent);
+        serviceConnection.doPlayAfterConnect(false);
+        if (!bound) {
+            bind(context);
+        }
+    }
+
+    public boolean dispatchPlaybackIntentDirectly(final Intent intent) {
+        return playerService != null && playerService.handlePlaybackIntentDirectly(intent);
     }
 
     public void stopService() {

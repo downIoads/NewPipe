@@ -4,9 +4,11 @@ import static org.schabi.newpipe.ktx.ViewUtils.animate;
 import static org.schabi.newpipe.ktx.ViewUtils.animateHideRecyclerViewAllowingScrolling;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Resources;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -15,6 +17,7 @@ import android.view.View;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
+import androidx.core.content.ContextCompat;
 import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -28,9 +31,18 @@ import org.schabi.newpipe.fragments.OnScrollBelowItemsListener;
 import org.schabi.newpipe.info_list.InfoListAdapter;
 import org.schabi.newpipe.info_list.ItemViewMode;
 import org.schabi.newpipe.info_list.dialog.InfoItemDialog;
+import org.schabi.newpipe.player.Player;
+import org.schabi.newpipe.player.PlayerIntentType;
+import org.schabi.newpipe.player.PlayerService;
+import org.schabi.newpipe.player.PlayerType;
+import org.schabi.newpipe.player.helper.PlayerHelper;
+import org.schabi.newpipe.player.helper.PlayerHolder;
+import org.schabi.newpipe.player.playqueue.PlayQueue;
+import org.schabi.newpipe.player.playqueue.SinglePlayQueue;
 import org.schabi.newpipe.util.NavigationHelper;
 import org.schabi.newpipe.util.OnClickGesture;
 import org.schabi.newpipe.util.StateSaver;
+import org.schabi.newpipe.util.StreamPrefetcher;
 import org.schabi.newpipe.util.ThemeHelper;
 import org.schabi.newpipe.views.SuperScrollLayoutManager;
 
@@ -293,8 +305,41 @@ public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
 
         infoListAdapter.setOnCommentsSelectedListener(this::onItemSelected);
 
+        // Warm the StreamInfo cache for items as they scroll into view, so that tapping one is a
+        // cache hit (~0ms) instead of a ~1.7s network extraction. See StreamPrefetcher.
+        itemsList.addOnChildAttachStateChangeListener(
+                new RecyclerView.OnChildAttachStateChangeListener() {
+                    @Override
+                    public void onChildViewAttachedToWindow(@NonNull final View view) {
+                        prefetchVisibleItem(view);
+                    }
+
+                    @Override
+                    public void onChildViewDetachedFromWindow(@NonNull final View view) {
+                        // no-op
+                    }
+                });
+
         // Ensure that there is always a scroll listener (e.g. when rotating the device)
         useNormalItemListScrollListener();
+    }
+
+    private void prefetchVisibleItem(@NonNull final View view) {
+        if (itemsList == null || infoListAdapter == null) {
+            return;
+        }
+        final int position = itemsList.getChildAdapterPosition(view);
+        if (position < 0) {
+            return;
+        }
+        final List<InfoItem> items = infoListAdapter.getItemsList();
+        if (position >= items.size()) {
+            return;
+        }
+        final InfoItem item = items.get(position);
+        if (item instanceof StreamInfoItem) {
+            StreamPrefetcher.prefetch(item.getServiceId(), item.getUrl());
+        }
     }
 
     /**
@@ -381,9 +426,33 @@ public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
 
     private void onStreamSelected(final StreamInfoItem selectedItem) {
         onItemSelected(selectedItem);
+        final PlayQueue queue = new SinglePlayQueue(selectedItem);
+        fastStartMainPlayerIfUseful(queue);
         NavigationHelper.openVideoDetailFragment(requireContext(), getFM(),
                 selectedItem.getServiceId(), selectedItem.getUrl(), selectedItem.getName(),
-                null, false);
+                queue, false);
+    }
+
+    private void fastStartMainPlayerIfUseful(@NonNull final PlayQueue queue) {
+        final Context context = requireContext();
+        final PlayerType playerType = PlayerHolder.getInstance().getType();
+        if (!PlayerHelper.isAutoplayAllowedByUser(context)
+                || (playerType != null && playerType != PlayerType.MAIN)) {
+            return;
+        }
+
+        final Intent intent = NavigationHelper
+                .getPlayerIntent(context, PlayerService.class, queue, PlayerIntentType.AllOthers)
+                .putExtra(Player.PLAY_WHEN_READY, true)
+                // The detail page still performs the full resume-aware load. This immediate path
+                // is only for reducing tap-to-first-frame latency, so skip the DB resume hop.
+                .putExtra(Player.RESUME_PLAYBACK, false)
+                .putExtra(Player.PLAYBACK_START_TRACE_ID, SystemClock.elapsedRealtime())
+                .putExtra(Player.PLAYBACK_START_TRACE_ELAPSED_REALTIME_MS,
+                        SystemClock.elapsedRealtime());
+        if (!PlayerHolder.getInstance().dispatchPlaybackIntentDirectly(intent)) {
+            ContextCompat.startForegroundService(context, intent);
+        }
     }
 
     protected void onScrollToBottom() {

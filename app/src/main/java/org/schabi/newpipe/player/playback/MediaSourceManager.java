@@ -411,10 +411,20 @@ public class MediaSourceManager {
             }
 
             loadingItems.add(item);
+            // Player-startup timing: read with `adb logcat -s PlayerStartupTrace`.
+            final long resolveStartMs = System.currentTimeMillis();
+            android.util.Log.i("PlayerStartupTrace", "mediaSource.resolve.start title="
+                    + item.getTitle());
             final Disposable loader = getLoadedMediaSource(item)
                     .observeOn(AndroidSchedulers.mainThread())
                     /* No exception handling since getLoadedMediaSource guarantees nonnull return */
-                    .subscribe(mediaSource -> onMediaSourceReceived(item, mediaSource));
+                    .subscribe(mediaSource -> {
+                        android.util.Log.i("PlayerStartupTrace",
+                                "mediaSource.resolve.end durationMs="
+                                        + (System.currentTimeMillis() - resolveStartMs)
+                                        + " title=" + item.getTitle());
+                        onMediaSourceReceived(item, mediaSource);
+                    });
             loaderReactor.add(loader);
         }
     }

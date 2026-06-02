@@ -159,6 +159,11 @@ public final class VideoDetailFragment
     public static final String ACTION_VIDEO_FRAGMENT_STOPPED =
             App.PACKAGE_NAME + ".VideoDetailFragment.ACTION_VIDEO_FRAGMENT_STOPPED";
 
+    // Safety net for the deferred related-items/comments tab rendering: if playback never reaches
+    // the PLAYING state (e.g. extraction produced no playable streams, or the user disabled
+    // autoplay mid-flight), render the tabs anyway after this delay. Kept comfortably longer than
+    // a normal start so it never fires while playback is still spinning up.
+    private static final long DEFERRED_DETAIL_UI_TIMEOUT_MS = 4000L;
     private static final String COMMENTS_TAB_TAG = "COMMENTS";
     private static final String RELATED_TAB_TAG = "NEXT VIDEO";
     private static final String DESCRIPTION_TAB_TAG = "DESCRIPTION TAB";
@@ -219,6 +224,8 @@ public final class VideoDetailFragment
     @Nullable
     private StreamInfo currentInfo = null;
     private Disposable currentWorker;
+    @Nullable
+    private Disposable commentsPrefetchWorker;
     @NonNull
     private final CompositeDisposable disposables = new CompositeDisposable();
     @Nullable
@@ -227,6 +234,11 @@ public final class VideoDetailFragment
     private long detailLoadTraceStartMs = -1L;
     private boolean autoplayStartedForCurrentTrace = false;
     private boolean playbackIntentSentForCurrentTrace = false;
+    // Heavy tab/comments rendering is deferred off the autoplay player-startup window so the
+    // player's main-thread callbacks (resume lookup, media-source resolve) are not starved.
+    private final Handler deferredDetailUiHandler = new Handler(Looper.getMainLooper());
+    @Nullable
+    private Runnable deferredDetailUiRunnable = null;
 
     private BottomSheetBehavior<FrameLayout> bottomSheetBehavior;
     private BottomSheetBehavior.BottomSheetCallback bottomSheetCallback;
@@ -452,6 +464,7 @@ public final class VideoDetailFragment
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        cancelDeferredDetailUi();
         binding = null;
     }
 
@@ -896,6 +909,10 @@ public final class VideoDetailFragment
         if (currentWorker != null) {
             currentWorker.dispose();
         }
+        if (commentsPrefetchWorker != null) {
+            commentsPrefetchWorker.dispose();
+            commentsPrefetchWorker = null;
+        }
     }
 
     private void beginDetailLoadTrace(@NonNull final String reason,
@@ -936,6 +953,7 @@ public final class VideoDetailFragment
                 + " cached=" + cached
                 + " url=" + url);
         logDetailLoadTrace("extractor.start cached=" + cached);
+        prefetchCommentsIfUseful(forceLoad);
         if (isAutoplayEnabled() && !isPlayerServiceAvailable()) {
             logDetailLoadTrace("warmPlayerService.start");
             playerHolder.startService(false, this);
@@ -999,6 +1017,29 @@ public final class VideoDetailFragment
                 });
     }
 
+    private void prefetchCommentsIfUseful(final boolean forceLoad) {
+        if (!shouldShowComments() || url == null
+                || ExtractorHelper.isCached(serviceId, url, InfoCache.Type.COMMENTS)) {
+            return;
+        }
+
+        logDetailLoadTrace("comments.prefetch.start forceLoad=" + forceLoad);
+        commentsPrefetchWorker = ExtractorHelper.getCommentsInfo(serviceId, url, forceLoad)
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(result -> {
+                    logDetailLoadTrace("comments.prefetch.success items="
+                            + result.getRelatedItems().size()
+                            + " hasNext=" + (result.getNextPage() != null));
+                    commentsPrefetchWorker = null;
+                }, throwable -> {
+                    logDetailLoadTrace("comments.prefetch.failed "
+                            + throwable.getClass().getSimpleName()
+                            + ": " + throwable.getMessage());
+                    commentsPrefetchWorker = null;
+                });
+    }
+
     private void startAutoplayForCurrentTrace(@NonNull final String reason) {
         if (autoplayStartedForCurrentTrace || !isAutoplayEnabled()) {
             return;
@@ -1013,6 +1054,12 @@ public final class VideoDetailFragment
     //////////////////////////////////////////////////////////////////////////*/
 
     private void initTabs() {
+        logDetailLoadTrace("initTabs.start");
+        initTabsInner();
+        logDetailLoadTrace("initTabs.end");
+    }
+
+    private void initTabsInner() {
         final boolean hadTabs = pageAdapter.getCount() != 0;
         if (openingNewVideoResetTab) {
             // A new video is being opened: always default to the comments tab regardless of
@@ -1375,8 +1422,10 @@ public final class VideoDetailFragment
                     + " currentInfoNull=" + (currentInfo == null));
             logDetailLoadTrace("openMainPlayer.startService currentInfoNull="
                     + (currentInfo == null));
-            playerHolder.startService(autoPlayEnabled, this);
-            return;
+            playerHolder.startService(false, this);
+            if (currentInfo == null) {
+                return;
+            }
         }
         if (currentInfo == null) {
             PersistentPlayerLogger.log(activity,
@@ -1406,7 +1455,19 @@ public final class VideoDetailFragment
                 + " currentInfo=" + currentInfo.getName());
         logDetailLoadTrace("openMainPlayer.intent queueSize=" + queue.size());
         playbackIntentSentForCurrentTrace = true;
-        ContextCompat.startForegroundService(activity, playerIntent);
+
+        // Fast path: when the player already exists and is foregrounded (warm/repeat playback —
+        // the common case), hand the queue to it directly instead of paying the ~300-600ms
+        // startForegroundService() dispatch. Falls back to the service start when the player is
+        // not yet created (cold start), preserving the foreground-start contract. See
+        // PlayerService#handlePlaybackIntentDirectly and OPTIMIZATIONS.md.
+        if (isPlayerAndPlayerServiceAvailable()
+                && playerService.handlePlaybackIntentDirectly(playerIntent)) {
+            logDetailLoadTrace("openMainPlayer.directDispatch");
+        } else {
+            logDetailLoadTrace("openMainPlayer.startForegroundService");
+            ContextCompat.startForegroundService(activity, playerIntent);
+        }
     }
 
     /**
@@ -1734,6 +1795,7 @@ public final class VideoDetailFragment
         PicassoHelper.cancelTag(PICASSO_VIDEO_DETAILS_TAG);
         binding.detailThumbnailImageView.setImageBitmap(null);
         binding.detailSubChannelThumbnailView.setImageBitmap(null);
+        logDetailLoadTrace("showLoading.end");
     }
 
     @Override
@@ -1744,8 +1806,12 @@ public final class VideoDetailFragment
         currentInfo = info;
         setInitialData(info.getServiceId(), info.getOriginalUrl(), info.getName(), playQueue);
 
-        updateTabs(info);
-        refreshCommentsTab(info, false);
+        // Building the related-items and comments tabs is heavy main-thread work that, when run
+        // synchronously here, blocks the autoplay player's queued startup work (the service's
+        // onStartCommand and its resume/media-source callbacks were measured stalling ~300ms+
+        // behind it). Defer it so playback claims the main thread first; flushed the moment
+        // playback starts (onPlaybackUpdate) or by a safety-net timeout.
+        scheduleDeferredDetailUi(info);
 
         animate(binding.detailThumbnailPlayButton, true, 200);
         binding.detailVideoTitleView.setText(title);
@@ -1864,6 +1930,48 @@ public final class VideoDetailFragment
                 + (binding.detailControlsBackground.getVisibility() == View.VISIBLE)
                 + " popup=" + (binding.detailControlsPopup.getVisibility() == View.VISIBLE)
                 + " download=" + (binding.detailControlsDownload.getVisibility() == View.VISIBLE));
+    }
+
+    /**
+     * Schedules the heavy related-items + comments tab rendering. When autoplay is enabled the
+     * work is deferred so the player can start without main-thread contention; it is flushed by
+     * {@link #flushDeferredDetailUi()} as soon as playback begins, with a safety-net timeout in
+     * case playback never starts (e.g. an extraction with no playable streams). When autoplay is
+     * disabled it runs immediately, preserving the previous behaviour.
+     *
+     * @param info the stream whose related-items and comments tabs should be rendered
+     */
+    private void scheduleDeferredDetailUi(@NonNull final StreamInfo info) {
+        cancelDeferredDetailUi();
+        deferredDetailUiRunnable = () -> {
+            deferredDetailUiRunnable = null;
+            logDetailLoadTrace("deferredDetailUi.run");
+            updateTabs(info);
+            refreshCommentsTab(info, false);
+        };
+        if (isAutoplayEnabled()) {
+            logDetailLoadTrace("deferredDetailUi.scheduled");
+            deferredDetailUiHandler.postDelayed(deferredDetailUiRunnable,
+                    DEFERRED_DETAIL_UI_TIMEOUT_MS);
+        } else {
+            deferredDetailUiRunnable.run();
+        }
+    }
+
+    private void flushDeferredDetailUi() {
+        if (deferredDetailUiRunnable != null) {
+            final Runnable runnable = deferredDetailUiRunnable;
+            deferredDetailUiHandler.removeCallbacks(runnable);
+            deferredDetailUiRunnable = null;
+            runnable.run();
+        }
+    }
+
+    private void cancelDeferredDetailUi() {
+        if (deferredDetailUiRunnable != null) {
+            deferredDetailUiHandler.removeCallbacks(deferredDetailUiRunnable);
+            deferredDetailUiRunnable = null;
+        }
     }
 
     private void displayUploaderAsSubChannel(final StreamInfo info) {
@@ -2043,6 +2151,12 @@ public final class VideoDetailFragment
                                  final int repeatMode,
                                  final boolean shuffled,
                                  final PlaybackParameters parameters) {
+        // Only render the deferred related-items / comments tabs once playback is actually
+        // PLAYING (i.e. at/after first frame). Flushing on the earlier BLOCKED/BUFFERING states
+        // would run that heavy work right in the middle of media-source resolution and starve it.
+        if (state == Player.STATE_PLAYING) {
+            flushDeferredDetailUi();
+        }
         setOverlayPlayPauseImage(player != null && player.isPlaying());
 
         switch (state) {
