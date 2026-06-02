@@ -255,7 +255,10 @@ public class MainActivity extends AppCompatActivity {
                 }
                 final int serviceId = intent.getIntExtra("serviceId",
                         ServiceList.YouTube.getServiceId());
-                StreamPrefetcher.prefetch(serviceId, url);
+                // Warm StreamInfo + resume position AND the first media chunk on disk, so the
+                // traced "tap" measures the full pre-warmed in-app flow (extraction cache hit +
+                // first frame served from disk). See StreamPrefetcher#prefetchMedia.
+                StreamPrefetcher.prefetchMedia(serviceId, url);
             }
         };
         final IntentFilter filter = new IntentFilter("org.schabi.newpipe.debug.PREFETCH");

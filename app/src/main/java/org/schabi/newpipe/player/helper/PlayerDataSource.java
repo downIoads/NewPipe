@@ -259,6 +259,40 @@ public class PlayerDataSource {
                 PlaybackResolver.cacheKeyOf(info, stream));
     }
 
+    /**
+     * Builds a {@link CacheWriter} that downloads only the <b>first {@code maxBytes}</b> of a
+     * stream into the shared on-disk {@link SimpleCache}, under the same stable cache key playback
+     * uses (see {@link #stableCacheKey}). Used to speculatively warm the first media chunk of a
+     * likely-to-be-tapped video <b>before</b> the tap, so the first rendered frame is served from
+     * disk instead of waiting on a cold googlevideo CDN fetch (~0.5-0.8s of the startup tail). The
+     * write is bounded so a wrong guess wastes only a few MB rather than a whole stream, and it
+     * finishes quickly enough on a normal connection to release SimpleCache's single-writer lock
+     * before the tap. See OPTIMIZATIONS.md / {@code StreamPrefetcher}.
+     *
+     * @param info     the stream info
+     * @param stream   the stream to warm
+     * @param maxBytes the maximum number of leading bytes to fetch (must be &gt; 0)
+     * @return a bounded {@link CacheWriter}, or {@code null} if the stream cannot be disk-cached
+     */
+    @Nullable
+    public CacheWriter createFirstChunkDiskCacheWriter(@NonNull final StreamInfo info,
+                                                       @NonNull final Stream stream,
+                                                       final long maxBytes) {
+        if (maxBytes <= 0 || !stream.isUrl()
+                || stream.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP) {
+            return null;
+        }
+        final CacheFactory factory = info.getService() == ServiceList.YouTube
+                ? ytProgressiveDashCacheDataSourceFactory : cacheDataSourceFactory;
+        final DataSpec dataSpec = new DataSpec.Builder()
+                .setUri(Uri.parse(stream.getContent()))
+                .setKey(PlaybackResolver.cacheKeyOf(info, stream))
+                .setLength(maxBytes)
+                .setFlags(DataSpec.FLAG_ALLOW_CACHE_FRAGMENTATION)
+                .build();
+        return new CacheWriter(factory.createDataSource(), dataSpec, null, null);
+    }
+
     @Nullable
     public CacheWriter createDiskCacheWriter(@NonNull final StreamInfo info,
                                              @NonNull final Stream stream) {

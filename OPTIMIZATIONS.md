@@ -11,6 +11,63 @@ compile straight into the app):
 
 ---
 
+## Session 4 (disk pre-buffer of the first media chunk + resume-state cache)
+
+**TL;DR:** The fully-warm in-app path (extraction cached, player prewarmed, dispatch direct) is
+gated ~3.3s, of which only the **terminal ~0.6s is network** (cold googlevideo CDN first-segment
+fetch) — the rest is a serial main-thread pipeline whose internal gaps **absorb** any upstream
+shaving (confirmed again this session). So this session attacked the one non-absorbable piece:
+the network tail. Landed a **speculative first-chunk disk pre-buffer** — before the tap we pull the
+first few MB of the streams playback will select into the shared on-disk ExoPlayer `SimpleCache`
+(stable cache key already shared with playback), so the first frame renders **from disk**. Verified
+on device: `CacheFactory: served from DISK cache` during playback, and the
+`metadata.changed → firstFrame` tail dropped from ~600-700ms to **~326ms**. Also landed a
+**resume-position cache** (removes a ~400ms main-thread-starved async DB hop — correct + foundational,
+but absorbed on the benchmark) and lowered `bufferForPlayback` 2500→1000ms (helps high-bitrate start;
+neutral on low-bitrate).
+
+### Numbers (in-app prefetched flow, `measure_startup.sh` / `measure_prefetch_flow.sh`)
+| Metric | Value |
+|---|---|
+| `firstFrameMs` this session (warm + disk pre-buffer) | ~2.7-3.4s (network-noisy) |
+| `metadata.changed → firstFrame` tail, before disk pre-buffer | ~600-700ms |
+| same tail, with disk pre-buffer (served from disk) | **~326ms** |
+
+The terminal network tail is the only non-absorbed gain, and the disk pre-buffer captures it. The
+remaining ~2.5s wall is the **app-side serial pipeline** (fragment open → cached extraction RxJava
+hop → autoplay → `openMainPlayer` → handleIntent → initPlayback → the `useVideoSource` double
+`reloadPlayQueueManager` → resolve → prepare), full of 60-220ms main-thread hops. Collapsing it is
+the fragile single-player-lifecycle work prior sessions deferred; <1s requires it.
+
+### What landed
+- **`StreamPrefetcher.prefetchMedia()`** — extends the StreamInfo prefetch to also warm the first
+  `WARM_VIDEO_BYTES` (3MB) / `WARM_AUDIO_BYTES` (1MB) of the default-selected video+audio streams
+  into the on-disk cache. Stream selection mirrors `VideoPlaybackResolver` (default quality, no
+  audio-track override) so the warmed `stableCacheKey` matches what playback reads. MB-scale, so
+  it is a single-item path (NOT the bulk list-visibility `prefetch`). Wired to the DEBUG `PREFETCH`
+  broadcast so the trace tools exercise it; logs `mediaWarm.done`.
+- **`PlayerDataSource.createFirstChunkDiskCacheWriter(info, stream, maxBytes)`** — bounded
+  `CacheWriter` (a wrong guess wastes a few MB, not a whole stream; finishes fast enough to release
+  SimpleCache's single-writer lock before the tap).
+- **`StreamStateCache` + `Player.handleIntent` fast path** — prefetch warms the resume position;
+  `handleIntent` reads it synchronously and calls `initPlayback()` inline (before `handleResult()`
+  grabs the main thread) instead of via the ~400ms-starved `observeOn(main)` DB callback. Correct +
+  foundational; **absorbed** on the benchmark (moving `initPlayback` earlier just shifts the
+  bottleneck onto the `useVideoSource`-triggered `reloadPlayQueueManager`).
+- **`handleIntentPost` guard** (`initPlaybackRanThisIntent`) — skips a redundant
+  `reloadPlayQueueManager()` when `initPlayback()` already (re)built the manager this intent.
+- **`LoadController` `PRELOAD_BUFFER_FOR_PLAYBACK_MS` 2500→1000** — faster start on high-bitrate
+  streams; measured neutral on the low-bitrate benchmark (first frame is gated by CDN connect
+  latency, not buffer-fill, there).
+
+### Open decision (the production trigger)
+`prefetchMedia` is currently only invoked by the DEBUG broadcast. The remaining step is **which
+item(s) to disk-warm in production** — it is bandwidth-sensitive (MB per item, possibly metered),
+so it should NOT run for every visible list item. Sensible options: warm the top related/up-next
+item on the detail page; or the centered/longest-visible list item; gate behind data-saver/metered.
+
+---
+
 ## Session 3 (prefetch + dispatch + full gap profiling)
 
 **TL;DR:** Mapped every silent stall with new logging. Confirmed the warm-path gate is NOT
@@ -224,7 +281,36 @@ recommended-video flow already added in commit ba358d1), just not for the extern
    StreamInfo as soon as streams+metadata are ready and populating next-derived fields lazily.
    More invasive (touches extractor core used elsewhere) — lower priority.
 5. Preconnect/warm the googlevideo CDN host once stream URLs are known (shave first-segment
-   buffering ~100–200ms). Minor.
+   buffering ~100–200ms). Minor. (Largely superseded by the Session-4 disk pre-buffer, which
+   removes the first-segment fetch from the critical path entirely when the guess is right.)
+
+### New TODOs from Session 4 (ordered by expected impact)
+6. **[BIGGEST now] Wire `StreamPrefetcher.prefetchMedia()` to a real production trigger.** The disk
+   pre-buffer is built + verified but only fires from the DEBUG `PREFETCH` broadcast. Pick a
+   bandwidth-safe trigger (it is MB-scale, must NOT run per visible list item):
+   - Detail page: warm the **top related / up-next** item (most likely next tap / autoplay target).
+   - Or the **centered / longest-visible** feed item (debounced), one at a time.
+   - Gate behind data-saver / metered-connection checks; cap concurrent/total warmed items.
+   - Consider warming a touch of more than the first chunk for high-bitrate (the residual ~326ms
+     tail suggests not the entire first GOP was always cached — tune `WARM_VIDEO_BYTES`).
+7. **[BIGGEST for <1s] Collapse the app-side serial pipeline** (`openMainPlayer` → first frame,
+   ~1.7s of 60-220ms main-thread hops). With the network tail handled, this is now the wall. Two
+   concrete targets seen in every trace:
+   - **The `useVideoSource(true)` double `reloadPlayQueueManager`.** `ACTION_VIDEO_FRAGMENT_RESUMED`
+     → `MainPlayerUi.useVideoSource(true)` → `playQueueManagerReloadingNeeded` returns true (video
+     renderer index unknown pre-prepare) → it **disposes the manager `initPlayback` just built and
+     rebuilds it**, so the media-source resolve is delayed ~700ms (the first manager never resolves).
+     Make the first `initPlayback` build the video-enabled manager so the resume-time reload is a
+     no-op. CAUTION: fragile (audio/video source-type switching, renderer index).
+   - **The cached-extraction RxJava hop** (`extractor.start → extractor.success` is ~210ms even when
+     `cached=true`): the `observeOn(main)` result is starved behind `initTabs`/comments-prefetch.
+8. **Speculatively pre-PREPARE the player (not just disk), gated on idle.** The disk pre-buffer
+   removes the CDN fetch; the next step is pre-resolving the media source + `ExoPlayer.prepare()`
+   for the single most-likely item into the idle prewarmed player so the tap hits the existing
+   `handleIntent.sameQueuePlayWhenReady` fast path (just `setPlayWhenReady(true)`), skipping
+   resolve+prepare entirely. BLOCKER: a loaded play queue makes `isPlayerOpen()` true → the
+   mini-player would appear before the tap; needs a "primed but hidden" player state. Highest risk,
+   highest reward (this is what actually gets a fresh load under 1s).
 
 ## Open trade-off to remember
 - The android-client-as-fallback change means the common path uses ANDROID_VR's format ladder

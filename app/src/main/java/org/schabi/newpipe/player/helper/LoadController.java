@@ -18,7 +18,14 @@ public class LoadController extends DefaultLoadControl {
     private static final int PRELOAD_MIN_BUFFER_MS = SEEK_RETAIN_MS + SMOOTH_PLAYBACK_AHEAD_MS;
     private static final int PRELOAD_MAX_BUFFER_MS = SEEK_RETAIN_MS + SMOOTH_PLAYBACK_AHEAD_MS;
     private static final int PRELOAD_TARGET_BUFFER_BYTES = 96 * 1024 * 1024;
-    private static final int PRELOAD_BUFFER_FOR_PLAYBACK_MS = 2500;
+    // How much media must buffer before ExoPlayer leaves the initial BUFFERING state and begins
+    // playback. ExoPlayer's default is 2500ms. For low-bitrate streams this is neutral (the gate is
+    // CDN connection latency, not download volume — measured: first frame unchanged), but for
+    // high-bitrate streams 2.5s of media is several MB and waiting for all of it delays the start.
+    // 1000ms starts noticeably sooner on those while staying conservative enough to avoid frequent
+    // re-buffering on slower mobile connections (re-buffer recovery is governed separately by the
+    // AFTER_REBUFFER value below). See OPTIMIZATIONS.md.
+    private static final int PRELOAD_BUFFER_FOR_PLAYBACK_MS = 1000;
     private static final int PRELOAD_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5000;
 
     private boolean preloadingEnabled = true;

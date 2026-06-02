@@ -19,11 +19,11 @@ for i in $(seq 1 "$RUNS"); do
     adb shell am start -n "$PKG"/org.schabi.newpipe.MainActivity >/dev/null 2>&1
     sleep 8
     adb logcat -b all -c
-    # Warm the StreamInfo cache (== the list-visibility prefetch path).
+    # Warm StreamInfo + resume position + first media chunk on disk (== the prefetchMedia path).
     adb shell am broadcast -a org.schabi.newpipe.debug.PREFETCH --es url "$URL" -p "$PKG" >/dev/null
-    # Wait until the prefetch has populated the cache (or 6s safety net).
-    for _ in $(seq 1 60); do
-        if adb logcat -d -s StreamPrefetcher:I | grep -q "prefetch.done url=$URL"; then
+    # Wait until the first media chunk has been warmed onto disk (or 12s safety net).
+    for _ in $(seq 1 120); do
+        if adb logcat -d -s StreamPrefetcher:I | grep -q "mediaWarm.done url=$URL"; then
             break
         fi
         sleep 0.1

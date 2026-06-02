@@ -20,8 +20,10 @@ adb shell am start -n "$PKG"/org.schabi.newpipe.MainActivity >/dev/null 2>&1
 sleep 8
 adb logcat -b all -c
 adb shell am broadcast -a org.schabi.newpipe.debug.PREFETCH --es url "$URL" -p "$PKG" >/dev/null
-for _ in $(seq 1 60); do
-    if adb logcat -d -s StreamPrefetcher:I | grep -q "prefetch.done url=$URL"; then break; fi
+# Wait until the first media chunk has been warmed onto disk (mediaWarm.done), not just StreamInfo,
+# so the traced tap measures the full pre-warmed flow. 12s safety net for the MB-scale download.
+for _ in $(seq 1 120); do
+    if adb logcat -d -s StreamPrefetcher:I | grep -q "mediaWarm.done url=$URL"; then break; fi
     sleep 0.1
 done
 exec scripts/trace_video_startup.py "$URL" --timeout 60

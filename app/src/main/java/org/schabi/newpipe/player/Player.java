@@ -94,6 +94,7 @@ import com.squareup.picasso.Target;
 
 import org.schabi.newpipe.MainActivity;
 import org.schabi.newpipe.R;
+import org.schabi.newpipe.database.stream.model.StreamStateEntity;
 import org.schabi.newpipe.databinding.PlayerBinding;
 import org.schabi.newpipe.error.ErrorInfo;
 import org.schabi.newpipe.error.ErrorUtil;
@@ -139,6 +140,7 @@ import org.schabi.newpipe.util.ListHelper;
 import org.schabi.newpipe.util.NavigationHelper;
 import org.schabi.newpipe.util.PersistentPlayerLogger;
 import org.schabi.newpipe.util.SerializedCache;
+import org.schabi.newpipe.util.StreamStateCache;
 import org.schabi.newpipe.util.StreamTypeUtil;
 import org.schabi.newpipe.util.image.PicassoHelper;
 
@@ -270,6 +272,10 @@ public final class Player implements PlaybackListener, Listener {
     private long playbackStartTraceStartMs = -1L;
     private long playbackStartTraceLastMs = -1L;
     private boolean playbackStartFirstFrameLogged = false;
+    // True while a single handleIntent() call has just (re)initialized playback via initPlayback().
+    // Lets handleIntentPost() skip a redundant reloadPlayQueueManager() (the freshly built manager
+    // is already correct for the current playerType). See OPTIMIZATIONS.md.
+    private boolean initPlaybackRanThisIntent = false;
 
     /*//////////////////////////////////////////////////////////////////////////
     // UIs, listeners and disposables
@@ -565,6 +571,7 @@ public final class Player implements PlaybackListener, Listener {
     @SuppressWarnings("MethodLength")
     public void handleIntent(@NonNull final Intent intent) {
         updatePlaybackStartTrace(intent);
+        initPlaybackRanThisIntent = false;
         logPlaybackStartTrace("handleIntent.start");
         PersistentPlayerLogger.log(context, "Player.handleIntent.start "
                 + "playerType=" + playerType
@@ -741,6 +748,24 @@ public final class Player implements PlaybackListener, Listener {
                 && !newQueue.isEmpty()
                 && newQueue.getItem() != null
                 && newQueue.getItem().getRecoveryPosition() == PlayQueueItem.RECOVERY_UNSET) {
+            // Fast path: if the resume position was warmed into StreamStateCache during prefetch,
+            // use it synchronously and call initPlayback() inline — before the detail fragment's
+            // handleResult() rendering claims the main thread. The async DB callback below is
+            // otherwise queued behind that rendering, delaying media-source resolve + first-segment
+            // buffering by ~400ms. See StreamStateCache / OPTIMIZATIONS.md.
+            final StreamStateEntity[] cachedState =
+                    StreamStateCache.consume(newQueue.getItem().getUrl());
+            if (cachedState != null) {
+                final StreamStateEntity state = cachedState[0];
+                if (state != null && !state.isFinished(newQueue.getItem().getDuration())) {
+                    newQueue.setRecovery(newQueue.getIndex(), state.getProgressMillis());
+                }
+                logPlaybackStartTrace("handleIntent.resumePlayback.cachedState hasState="
+                        + (state != null));
+                initPlayback(newQueue, playWhenReady);
+                return;
+            }
+
             logPlaybackStartTrace("handleIntent.resumePlayback.dbStart");
             databaseUpdateDisposable.add(recordManager.loadStreamState(newQueue.getItem())
                     .observeOn(AndroidSchedulers.mainThread())
@@ -783,7 +808,11 @@ public final class Player implements PlaybackListener, Listener {
 
 
     public void handleIntentPost(final PlayerType oldPlayerType) {
-        if (oldPlayerType != playerType && playQueue != null) {
+        // When initPlayback() ran during this intent it already built a fresh playQueueManager for
+        // the current playerType, so reloading here would be pure waste (~300ms of media-source
+        // re-resolution on the critical path). Only reload when the player type actually changed on
+        // an already-existing queue that handleIntent did NOT reinitialize.
+        if (oldPlayerType != playerType && playQueue != null && !initPlaybackRanThisIntent) {
             // If playerType changes from one to another we should reload the player
             // (to disable/enable video stream or to set quality)
             reloadPlayQueueManager();
@@ -840,6 +869,7 @@ public final class Player implements PlaybackListener, Listener {
 
     private void initPlayback(@NonNull final PlayQueue queue,
                               final boolean playOnReady) {
+        initPlaybackRanThisIntent = true;
         logPlaybackStartTrace("initPlayback.start queueSize=" + queue.size()
                 + " playOnReady=" + playOnReady);
         if (canReusePrewarmedPlayer()) {
