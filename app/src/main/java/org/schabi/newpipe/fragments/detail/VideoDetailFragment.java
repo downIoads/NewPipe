@@ -1006,16 +1006,31 @@ public final class VideoDetailFragment
     //////////////////////////////////////////////////////////////////////////*/
 
     private void initTabs() {
-        if (pageAdapter.getCount() != 0) {
+        final boolean hadTabs = pageAdapter.getCount() != 0;
+        if (hadTabs) {
             selectedTabTag = pageAdapter.getItemTitle(binding.viewPager.getCurrentItem());
         }
+
+        // If the user is currently looking at the comments tab, retain the existing
+        // CommentsFragment instance instead of swapping in an EmptyFragment. Replacing the
+        // *visible* comments fragment through the ViewPager (updateItem + notifyDataSetChanged)
+        // is intermittently unreliable on the legacy FragmentPagerAdapter and can leave the
+        // previously played video's comments attached (stale tab that only refreshes after
+        // switching tabs). We instead update the retained fragment's stream in-place in
+        // refreshCommentsTab(), which reliably clears and reloads it. The lazy EmptyFragment
+        // placeholder is still used whenever the comments tab is not the one on screen.
+        final Fragment retainedComments = hadTabs && COMMENTS_TAB_TAG.equals(selectedTabTag)
+                ? retainedVisibleCommentsFragment()
+                : null;
+
         pageAdapter.clearAllItems();
         tabIcons.clear();
         tabContentDescriptions.clear();
 
         if (shouldShowComments()) {
             pageAdapter.addFragment(
-                    EmptyFragment.newInstance(false), COMMENTS_TAB_TAG);
+                    retainedComments != null ? retainedComments : EmptyFragment.newInstance(false),
+                    COMMENTS_TAB_TAG);
             tabIcons.add(R.drawable.ic_comment);
             tabContentDescriptions.add(R.string.comments_tab_description);
         }
@@ -1048,6 +1063,24 @@ public final class VideoDetailFragment
         }
         // the page adapter now contains tabs: show the tab layout
         updateTabLayoutVisibility();
+    }
+
+    /**
+     * Returns the currently shown {@link CommentsFragment} so {@link #initTabs()} can retain it
+     * across a video switch (instead of swapping it for an {@link EmptyFragment}), or {@code null}
+     * if the comments tab is not currently a {@link CommentsFragment}. Retaining the visible
+     * instance avoids the unreliable swap-while-visible that left stale comments on screen.
+     *
+     * @return the visible {@link CommentsFragment} to retain, or {@code null} if there is none
+     */
+    @Nullable
+    private Fragment retainedVisibleCommentsFragment() {
+        final int commentsTabPos = pageAdapter.getItemPositionByTitle(COMMENTS_TAB_TAG);
+        if (commentsTabPos < 0) {
+            return null;
+        }
+        final Fragment fragment = pageAdapter.getItem(commentsTabPos);
+        return fragment instanceof CommentsFragment ? fragment : null;
     }
 
     /**
