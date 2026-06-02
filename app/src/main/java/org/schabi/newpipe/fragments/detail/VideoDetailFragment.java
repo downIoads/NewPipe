@@ -171,6 +171,9 @@ public final class VideoDetailFragment
     private boolean showRelatedItems;
     private boolean showDescription;
     private String selectedTabTag;
+    // Set when a new video is being opened, so initTabs() resets the visible tab to comments
+    // instead of preserving the previously active tab (e.g. related videos).
+    private boolean openingNewVideoResetTab;
     @AttrRes
     @NonNull
     final List<Integer> tabIcons = new ArrayList<>();
@@ -819,6 +822,10 @@ public final class VideoDetailFragment
         }
 
         setInitialData(newServiceId, newUrl, newTitle, newQueue);
+        // Whenever a new video is opened, default to showing the comments tab
+        // (instead of keeping whatever tab, e.g. related videos, was previously active).
+        // initTabs() reads this flag to override the otherwise-preserved selected tab.
+        openingNewVideoResetTab = true;
         startLoading(false, true);
     }
 
@@ -1007,7 +1014,12 @@ public final class VideoDetailFragment
 
     private void initTabs() {
         final boolean hadTabs = pageAdapter.getCount() != 0;
-        if (hadTabs) {
+        if (openingNewVideoResetTab) {
+            // A new video is being opened: always default to the comments tab regardless of
+            // which tab was previously active.
+            openingNewVideoResetTab = false;
+            selectedTabTag = COMMENTS_TAB_TAG;
+        } else if (hadTabs) {
             selectedTabTag = pageAdapter.getItemTitle(binding.viewPager.getCurrentItem());
         }
 
