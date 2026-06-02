@@ -1190,14 +1190,20 @@ public final class VideoDetailFragment
         final int commentsTabPos = pageAdapter.getItemPositionByTitle(COMMENTS_TAB_TAG);
         final Fragment fragment = pageAdapter.getItem(commentsTabPos);
         if (!(fragment instanceof CommentsFragment)) {
+            // No comments tab at all (e.g. comments disabled) -> nowhere to return to.
+            Log.w(TAG, "scrollToComment: comments tab unavailable (pos=" + commentsTabPos
+                    + ", fragment=" + fragment + "); staying put");
             return;
         }
 
-        // unexpand the app bar only if scrolling to the comment succeeded
-        if (((CommentsFragment) fragment).scrollToComment(comment)) {
-            binding.appBarLayout.setExpanded(false, false);
-            binding.viewPager.setCurrentItem(commentsTabPos, false);
-        }
+        // Always return the user to the comment section they came from. Try to restore the
+        // exact previous position; CommentsFragment falls back to the top of the list when
+        // that is not possible. Either way we land in the comment section and never crash.
+        final boolean restored = ((CommentsFragment) fragment).scrollToComment(comment);
+        Log.d(TAG, "scrollToComment: returning to comment section (tabPos=" + commentsTabPos
+                + ", exactPositionRestored=" + restored + ")");
+        binding.appBarLayout.setExpanded(false, false);
+        binding.viewPager.setCurrentItem(commentsTabPos, false);
     }
 
     /*//////////////////////////////////////////////////////////////////////////

@@ -1084,6 +1084,10 @@ public class MainActivity extends AppCompatActivity {
         @Nullable final CommentsInfoItem rootComment =
                 repliesFragment == null ? null : repliesFragment.getCommentsInfoItem();
 
+        Log.d(TAG, "openDetailFragmentFromCommentReplies: popBackStack=" + popBackStack
+                + ", fragmentUnder=" + fragmentUnderEntryName
+                + ", rootComment=" + (rootComment == null ? "null" : rootComment.getName()));
+
         // sometimes this function pops the backstack, other times it's handled by the system
         if (popBackStack) {
             fm.popBackStackImmediate();
@@ -1092,6 +1096,8 @@ public class MainActivity extends AppCompatActivity {
         // only expand the bottom sheet back if there are no more nested comment replies fragments
         // stacked under the one that is currently being popped
         if (CommentRepliesFragment.TAG.equals(fragmentUnderEntryName)) {
+            Log.d(TAG, "openDetailFragmentFromCommentReplies: nested replies remain, "
+                    + "not re-expanding bottom sheet");
             return;
         }
 
@@ -1099,6 +1105,8 @@ public class MainActivity extends AppCompatActivity {
                 .from(mainBinding.fragmentPlayerHolder);
         // do not return to the comment if the details fragment was closed
         if (behavior.getState() == BottomSheetBehavior.STATE_HIDDEN) {
+            Log.d(TAG, "openDetailFragmentFromCommentReplies: detail bottom sheet hidden, "
+                    + "not returning to comment");
             return;
         }
 
@@ -1110,9 +1118,17 @@ public class MainActivity extends AppCompatActivity {
                 if (newState == BottomSheetBehavior.STATE_EXPANDED) {
                     final Fragment detailFragment = fm.findFragmentById(
                             R.id.fragment_player_holder);
+                    // detailFragment is normally a VideoDetailFragment here, but the tab it
+                    // hosts may not be re-attached yet by the time the expand animation
+                    // finishes; VideoDetailFragment.scrollToComment handles that safely.
                     if (detailFragment instanceof VideoDetailFragment && rootComment != null) {
-                        // should always be the case
+                        Log.d(TAG, "bottom sheet expanded, scrolling back to root comment: "
+                                + rootComment.getName());
                         ((VideoDetailFragment) detailFragment).scrollToComment(rootComment);
+                    } else {
+                        Log.d(TAG, "bottom sheet expanded but cannot scroll to comment "
+                                + "(detailFragment=" + detailFragment
+                                + ", rootComment=" + rootComment + ")");
                     }
                     behavior.removeBottomSheetCallback(this);
                 }
