@@ -74,6 +74,7 @@ import org.schabi.newpipe.ktx.animateHideRecyclerViewAllowingScrolling
 import org.schabi.newpipe.local.feed.item.StreamItem
 import org.schabi.newpipe.local.feed.service.FeedLoadService
 import org.schabi.newpipe.local.subscription.SubscriptionManager
+import org.schabi.newpipe.util.DebugFileLog
 import org.schabi.newpipe.util.Localization
 import org.schabi.newpipe.util.NavigationHelper
 import org.schabi.newpipe.util.ThemeHelper.getGridSpanCountStreams
@@ -104,6 +105,10 @@ class FeedFragment : BaseStateFragment<FeedState>() {
     private var isRefreshing = false
 
     private var lastNewItemsCount = 0
+
+    // How many times the current refresh cycle has automatically retried subscriptions that
+    // failed to load. Reset to 0 on a fully successful load and on every manual refresh.
+    private var notLoadedAutoRetryCount = 0
 
     init {
         setHasOptionsMenu(true)
@@ -176,8 +181,8 @@ class FeedFragment : BaseStateFragment<FeedState>() {
 
     override fun initListeners() {
         super.initListeners()
-        feedBinding.refreshRootView.setOnClickListener { reloadContent() }
-        feedBinding.swipeRefreshLayout.setOnRefreshListener { reloadContent() }
+        feedBinding.refreshRootView.setOnClickListener { manualReloadContent() }
+        feedBinding.swipeRefreshLayout.setOnRefreshListener { manualReloadContent() }
     }
 
     // /////////////////////////////////////////////////////////////////////////
@@ -337,6 +342,40 @@ class FeedFragment : BaseStateFragment<FeedState>() {
 
     @SuppressLint("StringFormatMatches")
     private fun handleLoadedState(loadedState: FeedState.LoadedState) {
+        // `loadJustCompleted` is true only on the state emitted by a just-finished load
+        // (SuccessResultEvent), not on idle/initial states or filter-change re-emissions. This
+        // limits the auto-retry/log-persisting logic to genuine load completions and ensures it
+        // fires exactly once per completed load.
+        val loadJustCompleted = loadedState.loadJustCompleted
+        val feedsNotLoaded = loadedState.notLoadedCount > 0
+
+        if (!feedsNotLoaded) {
+            // A fully successful load replenishes the auto-retry budget.
+            notLoadedAutoRetryCount = 0
+        } else if (loadJustCompleted && notLoadedAutoRetryCount < MAX_NOT_LOADED_AUTO_RETRIES) {
+            // A refresh finished but some subscriptions could not be loaded. Their last_updated
+            // is NULL, so a normal reload re-fetches exactly those. Silently retry before
+            // bothering the user or persisting logs.
+            notLoadedAutoRetryCount++
+            Log.w(
+                TAG,
+                "Feed refresh left ${loadedState.notLoadedCount} subscription(s) not loaded; " +
+                    "auto-retry $notLoadedAutoRetryCount/$MAX_NOT_LOADED_AUTO_RETRIES"
+            )
+            DebugFileLog.log(
+                TAG,
+                "not-loaded after refresh (group=$groupName id=$groupId): " +
+                    "count=${loadedState.notLoadedCount}, " +
+                    "auto-retry $notLoadedAutoRetryCount/$MAX_NOT_LOADED_AUTO_RETRIES"
+            )
+            reloadContent()
+            return
+        } else if (loadJustCompleted) {
+            // Auto-retries are exhausted and subscriptions are still not loaded. Persist detailed
+            // logs (incl. full stack traces) so the failure can be debugged from the log file alone.
+            persistNotLoadedErrors(loadedState.notLoadedCount, loadedState.itemsErrors)
+        }
+
         val itemVersion = when (getItemViewMode(requireContext())) {
             ItemViewMode.GRID -> StreamItem.ItemVersion.GRID
             ItemViewMode.CARD -> StreamItem.ItemVersion.CARD
@@ -358,7 +397,6 @@ class FeedFragment : BaseStateFragment<FeedState>() {
             listState = null
         }
 
-        val feedsNotLoaded = loadedState.notLoadedCount > 0
         feedBinding.refreshSubtitleText.isVisible = feedsNotLoaded
         if (feedsNotLoaded) {
             feedBinding.refreshSubtitleText.text = getString(
@@ -550,6 +588,51 @@ class FeedFragment : BaseStateFragment<FeedState>() {
 
     override fun doInitialLoadLogic() {}
 
+    /**
+     * Triggered by the user (refresh button / swipe). Resets the auto-retry budget so a manual
+     * refresh always gets a fresh set of automatic retries for not-loaded subscriptions.
+     */
+    private fun manualReloadContent() {
+        notLoadedAutoRetryCount = 0
+        reloadContent()
+    }
+
+    /**
+     * Persists the errors that left subscriptions unloaded after all auto-retries to the debug
+     * log file (see [DebugFileLog]), including the full cause chain and stack traces, so the
+     * issue can be investigated from the logs alone:
+     * {@code adb pull /sdcard/Android/data/org.schabi.newpipe.debug/cache/debug_playback_log.txt}
+     */
+    private fun persistNotLoadedErrors(notLoadedCount: Long, errors: List<Throwable>) {
+        DebugFileLog.log(
+            TAG,
+            "Feed still has $notLoadedCount not-loaded subscription(s) after " +
+                "$MAX_NOT_LOADED_AUTO_RETRIES auto-retries (group=$groupName id=$groupId). " +
+                "Collected ${errors.size} error(s):"
+        )
+        if (errors.isEmpty()) {
+            DebugFileLog.log(
+                TAG,
+                "  (no item errors were reported for this load — the subscription(s) may have " +
+                    "been skipped before extraction; check the preceding feed-load logs)"
+            )
+        }
+        errors.forEachIndexed { index, t ->
+            val header = if (t is FeedLoadService.RequestException) {
+                "  [#${index + 1}] subscriptionId=${t.subscriptionId} request=${t.message}"
+            } else {
+                "  [#${index + 1}] ${t.javaClass.name}: ${t.message}"
+            }
+            // Log.getStackTraceString includes the full cause chain, which is what makes the
+            // failure debuggable from the log file alone.
+            DebugFileLog.log(TAG, header + "\n" + Log.getStackTraceString(t))
+        }
+        Log.w(
+            TAG,
+            "Persisted $notLoadedCount not-loaded feed error(s) to ${DebugFileLog.getLogFilePath()}"
+        )
+    }
+
     override fun reloadContent() {
         getActivity()?.startService(
             Intent(requireContext(), FeedLoadService::class.java).apply {
@@ -562,6 +645,12 @@ class FeedFragment : BaseStateFragment<FeedState>() {
     companion object {
         const val KEY_GROUP_ID = "ARG_GROUP_ID"
         const val KEY_GROUP_NAME = "ARG_GROUP_NAME"
+
+        /**
+         * How many times a refresh that left subscriptions not loaded is automatically retried
+         * before giving up, showing the "Not loaded" count and persisting debug logs.
+         */
+        private const val MAX_NOT_LOADED_AUTO_RETRIES = 2
 
         @JvmStatic
         fun newInstance(groupId: Long = FeedGroupEntity.GROUP_ALL_ID, groupName: String? = null): FeedFragment {
