@@ -223,9 +223,15 @@ public final class PlayerHolder {
             startPlayerListener();
             // ^ will call listener.onPlayerConnected() down the line if there is an active player
 
-            if (playerService != null && playerService.getPlayer() != null) {
+            if (isPlayerOpen()) {
                 // notify the main activity that binding the service has completed and that there is
-                // a player, so that it can open the bottom mini-player
+                // a player WITH ACTUAL CONTENT (a play queue), so that it can open the bottom
+                // mini-player. A bare prewarmed/idle player (built by warmServiceForStartup() for
+                // performance, with no play queue) must NOT trigger this: otherwise, after the user
+                // closes playback via the mini player's X (which destroys the player and stops the
+                // service), the next list-prefetch warm would rebuild an empty player, re-fire this
+                // event, and make VideoDetailFragment pop the empty mini player back up — an
+                // endless close/respawn loop. See isPlayerOpen().
                 NavigationHelper.sendPlayerStartedEvent(localBinder.getService());
             }
         }

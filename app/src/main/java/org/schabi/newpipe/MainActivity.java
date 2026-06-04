@@ -139,6 +139,7 @@ public class MainActivity extends AppCompatActivity {
     // (the realistic in-app "item was visible in a list, then tapped" flow). See StreamPrefetcher.
     private BroadcastReceiver debugPrefetchReceiver;
     private BroadcastReceiver debugPlayerOrientationReceiver;
+    private BroadcastReceiver debugBottomSheetReceiver;
 
     // Keeps the launch/splash screen visible until the first feed thumbnails have been
     // prefetched into Picasso's memory cache, so the feed appears with thumbnails already
@@ -235,6 +236,7 @@ public class MainActivity extends AppCompatActivity {
 
         registerDebugPrefetchReceiver();
         registerDebugPlayerOrientationReceiver();
+        registerDebugBottomSheetReceiver();
     }
 
     /**
@@ -304,6 +306,43 @@ public class MainActivity extends AppCompatActivity {
         final IntentFilter filter = new IntentFilter(
                 "org.schabi.newpipe.debug.PLAYER_ORIENTATION");
         ContextCompat.registerReceiver(this, debugPlayerOrientationReceiver, filter,
+                ContextCompat.RECEIVER_EXPORTED);
+    }
+
+    /**
+     * DEBUG-only receiver to drive and inspect the bottom-sheet mini player from adb, so the
+     * minimize gesture and the mini player's "X" can be reproduced deterministically:
+     * <pre>
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.BOTTOM_SHEET \
+     *       --es action minimize -p org.schabi.newpipe.debug
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.BOTTOM_SHEET \
+     *       --es action close -p org.schabi.newpipe.debug
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.BOTTOM_SHEET \
+     *       --es action state -p org.schabi.newpipe.debug
+     * </pre>
+     * Logs a {@code BottomSheetTrace} line (see {@code adb logcat}) describing whether a mini
+     * player is currently shown and the player/play-queue state, before and after the action.
+     */
+    private void registerDebugBottomSheetReceiver() {
+        if (!DEBUG) {
+            return;
+        }
+        debugBottomSheetReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(final Context context, final Intent intent) {
+                final String action = intent.getStringExtra("action");
+                final Fragment fragment = getSupportFragmentManager()
+                        .findFragmentById(R.id.fragment_player_holder);
+                if (fragment instanceof VideoDetailFragment) {
+                    ((VideoDetailFragment) fragment).debugBottomSheetAction(action);
+                } else {
+                    PersistentPlayerLogger.log(MainActivity.this,
+                            "BottomSheetTrace adb.noVideoDetailFragment action=" + action);
+                }
+            }
+        };
+        final IntentFilter filter = new IntentFilter("org.schabi.newpipe.debug.BOTTOM_SHEET");
+        ContextCompat.registerReceiver(this, debugBottomSheetReceiver, filter,
                 ContextCompat.RECEIVER_EXPORTED);
     }
 
@@ -735,6 +774,10 @@ public class MainActivity extends AppCompatActivity {
         if (debugPrefetchReceiver != null) {
             unregisterReceiver(debugPrefetchReceiver);
             debugPrefetchReceiver = null;
+        }
+        if (debugBottomSheetReceiver != null) {
+            unregisterReceiver(debugBottomSheetReceiver);
+            debugBottomSheetReceiver = null;
         }
         if (debugPlayerOrientationReceiver != null) {
             unregisterReceiver(debugPlayerOrientationReceiver);

@@ -1784,8 +1784,12 @@ public final class VideoDetailFragment
                         bottomSheetBehavior.setState(BottomSheetBehavior.STATE_HIDDEN);
                         break;
                     case ACTION_PLAYER_STARTED:
-                        // If the state is not hidden we don't need to show the mini player
-                        if (bottomSheetBehavior.getState() == BottomSheetBehavior.STATE_HIDDEN) {
+                        // If the state is not hidden we don't need to show the mini player.
+                        // Also require an actually-open player (one with a play queue): a bare
+                        // prewarmed player carries no content, and re-showing the mini player for
+                        // it after the user closed playback with X loops the empty player back up.
+                        if (bottomSheetBehavior.getState() == BottomSheetBehavior.STATE_HIDDEN
+                                && playerHolder.isPlayerOpen()) {
                             bottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
                         }
                         // Rebound to the service if it was closed via notification or mini player
@@ -2413,6 +2417,74 @@ public final class VideoDetailFragment
                         "OrientationSwitchTrace adb.invalidOrientation orientation="
                                 + orientation);
                 break;
+        }
+    }
+
+    /**
+     * DEBUG-only entry point to drive and inspect the bottom-sheet mini player from adb, so the
+     * minimize gesture and the mini player's "X" can be reproduced deterministically without
+     * touching the screen. See {@code MainActivity#registerDebugBottomSheetReceiver}.
+     *
+     * @param action one of: "minimize" (collapse to mini player), "close"/"x" (hide, i.e. press
+     *               the mini player X), "state"/"status" (just log the current state)
+     */
+    public void debugBottomSheetAction(@Nullable final String action) {
+        final String normalized = action == null ? "state" : action.trim().toLowerCase();
+        logBottomSheetDebugState("adb:" + normalized + ".before");
+        switch (normalized) {
+            case "minimize":
+            case "collapse":
+                if (bottomSheetBehavior != null) {
+                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                }
+                break;
+            case "close":
+            case "x":
+                // This is exactly what the mini player's overlayCloseButton does.
+                if (bottomSheetBehavior != null) {
+                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_HIDDEN);
+                }
+                break;
+            case "expand":
+                if (bottomSheetBehavior != null) {
+                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+                }
+                break;
+            case "state":
+            case "status":
+                break;
+            default:
+                PersistentPlayerLogger.log(activity,
+                        "BottomSheetTrace adb.invalidAction action=" + action);
+                break;
+        }
+        logBottomSheetDebugState("adb:" + normalized + ".after");
+    }
+
+    private void logBottomSheetDebugState(@NonNull final String trigger) {
+        final int state = bottomSheetBehavior == null ? -1 : bottomSheetBehavior.getState();
+        final boolean miniPlayerVisible = state == BottomSheetBehavior.STATE_COLLAPSED;
+        @Nullable final PlayQueue pq = isPlayerAvailable() ? player.getPlayQueue() : null;
+        PersistentPlayerLogger.log(activity, "BottomSheetTrace " + trigger
+                + " bottomSheetState=" + bottomSheetStateName(state)
+                + " miniPlayerShown=" + miniPlayerVisible
+                + " playerAvailable=" + isPlayerAvailable()
+                + " serviceAvailable=" + isPlayerServiceAvailable()
+                + " playerOpen=" + playerHolder.isPlayerOpen()
+                + " playQueueNull=" + (pq == null)
+                + " playQueueSize=" + (pq == null ? -1 : pq.size())
+                + " url=" + url);
+    }
+
+    private static String bottomSheetStateName(final int state) {
+        switch (state) {
+            case BottomSheetBehavior.STATE_HIDDEN: return "HIDDEN";
+            case BottomSheetBehavior.STATE_COLLAPSED: return "COLLAPSED";
+            case BottomSheetBehavior.STATE_EXPANDED: return "EXPANDED";
+            case BottomSheetBehavior.STATE_DRAGGING: return "DRAGGING";
+            case BottomSheetBehavior.STATE_SETTLING: return "SETTLING";
+            case BottomSheetBehavior.STATE_HALF_EXPANDED: return "HALF_EXPANDED";
+            default: return "UNKNOWN(" + state + ")";
         }
     }
 

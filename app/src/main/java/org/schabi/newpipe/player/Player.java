@@ -819,7 +819,16 @@ public final class Player implements PlaybackListener, Listener {
         }
 
         UIs.call(PlayerUi::setupAfterIntent);
-        NavigationHelper.sendPlayerStartedEvent(context);
+
+        // Only announce "a player has started" when there is actual content to show (a play queue).
+        // A content-less start happens when the service is merely (re)warmed for performance via
+        // PlayerHolder.warmServiceForStartup() (e.g. list prefetch right after the user closed the
+        // mini player with X): onStartCommand() builds a bare prewarmed player and still funnels
+        // the warm intent through here. Broadcasting the started event in that case makes
+        // VideoDetailFragment pop the (empty) mini player back up, producing a close/respawn loop.
+        if (playQueue != null) {
+            NavigationHelper.sendPlayerStartedEvent(context);
+        }
     }
 
     @Nullable
