@@ -21,6 +21,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.res.Configuration;
 import android.database.ContentObserver;
 import android.graphics.Color;
 import android.graphics.Rect;
@@ -234,6 +235,10 @@ public final class VideoDetailFragment
     private long detailLoadTraceStartMs = -1L;
     private boolean autoplayStartedForCurrentTrace = false;
     private boolean playbackIntentSentForCurrentTrace = false;
+    private long orientationSwitchTraceId = -1L;
+    private long orientationSwitchTraceStartMs = -1L;
+    private long orientationSwitchTraceLastStepMs = -1L;
+    private int viewPagerVisibilityBeforeFullscreen = View.VISIBLE;
     // Heavy tab/comments rendering is deferred off the autoplay player-startup window so the
     // player's main-thread callbacks (resume lookup, media-source resolve) are not starved.
     private final Handler deferredDetailUiHandler = new Handler(Looper.getMainLooper());
@@ -282,17 +287,7 @@ public final class VideoDetailFragment
             return;
         }
 
-        if (DeviceUtils.isLandscape(requireContext())) {
-            // If the video is playing but orientation changed
-            // let's make the video in fullscreen again
-            checkLandscape();
-        } else if (playerUi.map(ui -> ui.isFullscreen() && !ui.isVerticalVideo()).orElse(false)
-                // Tablet UI has orientation-independent fullscreen
-                && !DeviceUtils.isTablet(activity)) {
-            // Device is in portrait orientation after rotation but UI is in fullscreen.
-            // Return back to non-fullscreen state
-            playerUi.ifPresent(MainPlayerUi::toggleFullscreen);
-        }
+        syncFullscreenWithCurrentOrientation();
 
         if ((playAfterConnect && !playbackIntentSentForCurrentTrace)
                 || (currentInfo != null
@@ -317,6 +312,28 @@ public final class VideoDetailFragment
     @Override
     public void onServiceDisconnected() {
         playerService = null;
+    }
+
+    public void onHostConfigurationChanged(@NonNull final Configuration newConfig) {
+        logOrientationSwitchTrace("fragment.onConfigurationChanged.start orientation="
+                + newConfig.orientation
+                + " widthDp=" + newConfig.screenWidthDp
+                + " heightDp=" + newConfig.screenHeightDp);
+        if (binding == null || activity == null) {
+            logOrientationSwitchTrace(
+                    "fragment.onConfigurationChanged.skipped bindingOrActivityNull");
+            return;
+        }
+
+        syncFullscreenWithCurrentOrientation();
+        hideSystemUiIfNeeded();
+        if (getView() != null) {
+            setHeightThumbnail();
+            traceNextPreDraw("fragment.onConfigurationChanged.firstPreDraw", true);
+        } else {
+            finishOrientationSwitchTrace("fragment.onConfigurationChanged.noView");
+        }
+        logOrientationSwitchTrace("fragment.onConfigurationChanged.end");
     }
 
 
@@ -1177,6 +1194,9 @@ public final class VideoDetailFragment
         binding.viewPager.setVisibility(View.VISIBLE);
         // make sure the tab layout is visible
         updateTabLayoutVisibility();
+        if (isFullscreen()) {
+            applyFullscreenDetailUiState(true);
+        }
         pageAdapter.notifyDataSetUpdate();
         updateTabIconsAndContentDescriptions();
     }
@@ -1221,6 +1241,11 @@ public final class VideoDetailFragment
 
         if (binding == null) {
             //If binding is null we do not need to and should not do anything with its object(s)
+            return;
+        }
+
+        if (isFullscreen()) {
+            binding.tabLayout.setVisibility(View.GONE);
             return;
         }
 
@@ -1549,7 +1574,25 @@ public final class VideoDetailFragment
                 && PlayerHelper.isAutoplayAllowedByUser(requireContext());
     }
 
+    private void syncFullscreenWithCurrentOrientation() {
+        if (activity == null || !isPlayerAvailable()) {
+            return;
+        }
+
+        final Optional<MainPlayerUi> playerUi = player.UIs().get(MainPlayerUi.class);
+        if (DeviceUtils.isLandscape(requireContext())) {
+            // If the video is playing but orientation changed, make the video fullscreen again.
+            checkLandscape();
+        } else if (playerUi.map(ui -> ui.isFullscreen() && !ui.isVerticalVideo()).orElse(false)
+                // Tablet UI has orientation-independent fullscreen.
+                && !DeviceUtils.isTablet(activity)) {
+            // Device is in portrait orientation but UI is in fullscreen.
+            playerUi.ifPresent(MainPlayerUi::toggleFullscreen);
+        }
+    }
+
     private void tryAddVideoPlayerView() {
+        final long startMs = SystemClock.elapsedRealtime();
         if (isPlayerAvailable() && getView() != null) {
             // Setup the surface view height, so that it fits the video correctly; this is done also
             // here, and not only in the Handler, to avoid a choppy fullscreen rotation animation.
@@ -1569,13 +1612,23 @@ public final class VideoDetailFragment
             player.UIs().get(MainPlayerUi.class).ifPresent(playerUi -> {
                 // sometimes binding would be null here, even though getView() != null above u.u
                 if (binding != null) {
-                    // prevent from re-adding a view multiple times
-                    playerUi.removeViewFromParent();
-                    binding.playerPlaceholder.addView(playerUi.getBinding().getRoot());
-                    playerUi.setupVideoSurfaceIfNeeded();
+                    final View playerRoot = playerUi.getBinding().getRoot();
+                    final boolean alreadyAttached =
+                            playerRoot.getParent() == binding.playerPlaceholder;
+                    if (!alreadyAttached) {
+                        // prevent from re-adding a view multiple times
+                        playerUi.removeViewFromParent();
+                        binding.playerPlaceholder.addView(playerRoot);
+                        playerUi.setupVideoSurfaceIfNeeded();
+                    }
                     PersistentPlayerLogger.log(activity,
                             "VideoDetailFragment.tryAddVideoPlayerView.added "
+                                    + "alreadyAttached=" + alreadyAttached
+                                    + " durationMs="
+                                    + (SystemClock.elapsedRealtime() - startMs) + " "
                                     + screenRotationStateForLog());
+                    logOrientationSwitchTrace("tryAddVideoPlayerView.posted alreadyAttached="
+                            + alreadyAttached);
                 }
             });
         });
@@ -1625,14 +1678,24 @@ public final class VideoDetailFragment
      * {@link #MAX_PLAYER_HEIGHT})
      */
     private void setHeightThumbnail() {
+        final long startMs = SystemClock.elapsedRealtime();
         final DisplayMetrics metrics = getResources().getDisplayMetrics();
         final boolean isPortrait = metrics.heightPixels > metrics.widthPixels;
         requireView().getViewTreeObserver().removeOnPreDrawListener(preDrawListener);
 
         if (isFullscreen()) {
-            final int height = (DeviceUtils.isInMultiWindow(activity)
-                    ? requireView()
-                    : activity.getWindow().getDecorView()).getHeight();
+            // In multi-window the window is only a part of the display, so the surface must match
+            // the fragment view; the display metrics would describe the whole screen instead.
+            // Outside multi-window the player fills the screen, so metrics.heightPixels is the
+            // authoritative fullscreen height. We deliberately do NOT read decorView.getHeight()
+            // here: during onConfigurationChanged (orientation toggle without an Activity restart)
+            // the view tree has not been re-laid-out yet, so decorView still reports the previous
+            // orientation's height. That stale value would size the surface for the old
+            // orientation and leave half of the screen black. metrics is already updated for the
+            // new orientation at this point. See onHostConfigurationChanged.
+            final int height = DeviceUtils.isInMultiWindow(activity)
+                    ? requireView().getHeight()
+                    : metrics.heightPixels;
             // Height is zero when the view is not yet displayed like after orientation change
             if (height != 0) {
                 setHeightThumbnail(height, metrics);
@@ -1644,6 +1707,11 @@ public final class VideoDetailFragment
                     ? metrics.widthPixels / (16.0f / 9.0f)
                     : metrics.heightPixels / 2.0f);
             setHeightThumbnail(height, metrics);
+        }
+        if (hasActiveOrientationSwitchTrace()) {
+            logOrientationSwitchTrace("setHeightThumbnail durationMs="
+                    + (SystemClock.elapsedRealtime() - startMs)
+                    + " metrics=" + metrics.widthPixels + "x" + metrics.heightPixels);
         }
     }
 
@@ -2253,12 +2321,15 @@ public final class VideoDetailFragment
 
     @Override
     public void onFullscreenStateChanged(final boolean fullscreen) {
+        final long startMs = SystemClock.elapsedRealtime();
+        logOrientationSwitchTrace("onFullscreenStateChanged.start fullscreen=" + fullscreen);
         PersistentPlayerLogger.log(activity, "VideoDetailFragment.onFullscreenStateChanged "
                 + "fullscreen=" + fullscreen + " " + screenRotationStateForLog());
         setupBrightness();
         if (!isPlayerAndPlayerServiceAvailable()
                 || player.UIs().get(MainPlayerUi.class).isEmpty()
                 || getRoot().map(View::getParent).isEmpty()) {
+            logOrientationSwitchTrace("onFullscreenStateChanged.skipped unavailable");
             return;
         }
 
@@ -2269,25 +2340,98 @@ public final class VideoDetailFragment
             showSystemUi();
         }
 
-        if (binding.relatedItemsLayout != null) {
-            binding.relatedItemsLayout.setVisibility(fullscreen ? View.GONE : View.VISIBLE);
+        applyFullscreenDetailUiState(fullscreen);
+        if (fullscreen) {
+            logOrientationSwitchTrace("onFullscreenStateChanged.playerOnlyUi");
+        } else {
+            scrollToTop();
         }
-        scrollToTop();
 
         tryAddVideoPlayerView();
+        logOrientationSwitchTrace("onFullscreenStateChanged.end durationMs="
+                + (SystemClock.elapsedRealtime() - startMs));
+    }
+
+    private void applyFullscreenDetailUiState(final boolean fullscreen) {
+        if (fullscreen) {
+            viewPagerVisibilityBeforeFullscreen = binding.viewPager.getVisibility();
+            binding.viewPager.setVisibility(View.GONE);
+            binding.tabLayout.setVisibility(View.GONE);
+            if (binding.relatedItemsLayout != null) {
+                binding.relatedItemsLayout.setVisibility(View.GONE);
+            }
+            expandAppBarForFullscreenPlayer();
+        } else {
+            binding.viewPager.setVisibility(viewPagerVisibilityBeforeFullscreen);
+            if (binding.relatedItemsLayout != null) {
+                binding.relatedItemsLayout.setVisibility(View.VISIBLE);
+            }
+            updateTabLayoutVisibility();
+        }
+    }
+
+    private void expandAppBarForFullscreenPlayer() {
+        binding.appBarLayout.setExpanded(true, false);
+        final CoordinatorLayout.LayoutParams params =
+                (CoordinatorLayout.LayoutParams) binding.appBarLayout.getLayoutParams();
+        final AppBarLayout.Behavior behavior = (AppBarLayout.Behavior) params.getBehavior();
+        if (behavior != null) {
+            behavior.setTopAndBottomOffset(0);
+        }
+        binding.appBarLayout.requestLayout();
     }
 
     @Override
     public void onScreenRotationButtonClicked() {
-        PersistentPlayerLogger.log(activity, "VideoDetailFragment.screenRotationButton.callback "
-                + screenRotationStateForLog());
+        requestPlayerOrientation("ui", null, originalOrientation);
+    }
+
+    public void debugRequestPlayerOrientation(@Nullable final String orientation) {
+        final String normalized = orientation == null ? "toggle" : orientation.trim().toLowerCase();
+        switch (normalized) {
+            case "landscape":
+            case "horizontal":
+                requestPlayerOrientation("adb:" + normalized, true,
+                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+                break;
+            case "portrait":
+            case "vertical":
+                requestPlayerOrientation("adb:" + normalized, false,
+                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+                break;
+            case "toggle":
+            case "":
+                requestPlayerOrientation("adb:toggle", null,
+                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+                break;
+            case "state":
+            case "status":
+                logOrientationDebugState("adb:" + normalized);
+                break;
+            default:
+                PersistentPlayerLogger.log(activity,
+                        "OrientationSwitchTrace adb.invalidOrientation orientation="
+                                + orientation);
+                break;
+        }
+    }
+
+    private void requestPlayerOrientation(@NonNull final String trigger,
+                                          @Nullable final Boolean targetFullscreen,
+                                          final int exitFullscreenOrientation) {
         final Optional<MainPlayerUi> playerUi = player != null
                 ? player.UIs().get(MainPlayerUi.class)
                 : Optional.empty();
+        beginOrientationSwitchTrace(trigger, targetFullscreen == null
+                ? "toggle"
+                : (targetFullscreen ? "landscape" : "portrait"));
+        PersistentPlayerLogger.log(activity, "VideoDetailFragment.screenRotationButton.callback "
+                + "trigger=" + trigger + " " + screenRotationStateForLog());
         if (playerUi.isEmpty()) {
             PersistentPlayerLogger.log(activity,
                     "VideoDetailFragment.screenRotationButton.noMainPlayerUi "
                             + screenRotationStateForLog());
+            finishOrientationSwitchTrace("request.noMainPlayerUi");
             return;
         }
 
@@ -2297,27 +2441,177 @@ public final class VideoDetailFragment
             PersistentPlayerLogger.log(activity,
                     "VideoDetailFragment.screenRotationButton.tabletOrTvToggled "
                             + screenRotationStateForLog());
+            finishOrientationSwitchTrace("request.tabletOrTvToggled");
             return;
         }
 
-        if (playerUi.get().isFullscreen()) {
+        final boolean shouldEnterFullscreen =
+                targetFullscreen != null ? targetFullscreen : !playerUi.get().isFullscreen();
+        if (shouldEnterFullscreen == playerUi.get().isFullscreen()) {
+            PersistentPlayerLogger.log(activity,
+                    "VideoDetailFragment.screenRotationButton.noop targetFullscreen="
+                            + shouldEnterFullscreen + " " + screenRotationStateForLog());
+            logOrientationDebugState("request.noop");
+            finishOrientationSwitchTrace("request.noop");
+            return;
+        }
+
+        if (!shouldEnterFullscreen) {
             // EXITING FULLSCREEN
             playerUi.get().toggleFullscreen();
-            activity.setRequestedOrientation(originalOrientation);
+            logOrientationSwitchTrace("request.exitFullscreen.afterToggle");
+            activity.setRequestedOrientation(exitFullscreenOrientation);
             PersistentPlayerLogger.log(activity,
                     "VideoDetailFragment.screenRotationButton.exitFullscreen requested="
-                            + originalOrientation + " " + screenRotationStateForLog());
+                            + exitFullscreenOrientation + " " + screenRotationStateForLog());
+            logOrientationSwitchTrace("request.exitFullscreen.afterSetRequestedOrientation");
         } else {
             // ENTERING FULLSCREEN
             originalOrientation = activity.getRequestedOrientation();
             playerUi.get().toggleFullscreen();
+            logOrientationSwitchTrace("request.enterFullscreen.afterToggle");
             activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
             PersistentPlayerLogger.log(activity,
                     "VideoDetailFragment.screenRotationButton.enterFullscreen original="
                             + originalOrientation + " requested="
                             + ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE + " "
                             + screenRotationStateForLog());
+            logOrientationSwitchTrace("request.enterFullscreen.afterSetRequestedOrientation");
         }
+    }
+
+    private void beginOrientationSwitchTrace(@NonNull final String trigger,
+                                             @NonNull final String target) {
+        orientationSwitchTraceId = SystemClock.elapsedRealtime();
+        orientationSwitchTraceStartMs = orientationSwitchTraceId;
+        orientationSwitchTraceLastStepMs = orientationSwitchTraceId;
+        PersistentPlayerLogger.log(activity,
+                "OrientationSwitchTrace +0ms step=0ms id=" + orientationSwitchTraceId
+                        + " begin trigger=" + trigger + " target=" + target + " "
+                        + screenRotationStateForLog());
+    }
+
+    private boolean hasActiveOrientationSwitchTrace() {
+        return orientationSwitchTraceStartMs != -1L;
+    }
+
+    private void logOrientationSwitchTrace(@NonNull final String event) {
+        if (!hasActiveOrientationSwitchTrace()) {
+            return;
+        }
+        final long nowMs = SystemClock.elapsedRealtime();
+        PersistentPlayerLogger.log(activity,
+                "OrientationSwitchTrace +" + (nowMs - orientationSwitchTraceStartMs)
+                        + "ms step=" + (nowMs - orientationSwitchTraceLastStepMs)
+                        + "ms id=" + orientationSwitchTraceId + " " + event + " "
+                        + screenRotationStateForLog());
+        orientationSwitchTraceLastStepMs = nowMs;
+    }
+
+    private void finishOrientationSwitchTrace(@NonNull final String event) {
+        logOrientationSwitchTrace("end " + event);
+        orientationSwitchTraceId = -1L;
+        orientationSwitchTraceStartMs = -1L;
+        orientationSwitchTraceLastStepMs = -1L;
+    }
+
+    private void traceNextPreDraw(@NonNull final String event, final boolean finishTrace) {
+        final View view = getView();
+        if (view == null) {
+            if (finishTrace) {
+                finishOrientationSwitchTrace(event + ".noView");
+            } else {
+                logOrientationSwitchTrace(event + ".noView");
+            }
+            return;
+        }
+
+        view.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                if (view.getViewTreeObserver().isAlive()) {
+                    view.getViewTreeObserver().removeOnPreDrawListener(this);
+                }
+                logOrientationDebugState(event);
+                if (finishTrace) {
+                    finishOrientationSwitchTrace(event);
+                } else {
+                    logOrientationSwitchTrace(event);
+                }
+                return true;
+            }
+        });
+    }
+
+    private void logOrientationDebugState(@NonNull final String reason) {
+        if (binding == null || activity == null) {
+            PersistentPlayerLogger.log(activity,
+                    "OrientationSwitchState reason=" + reason
+                            + " bindingNull=" + (binding == null)
+                            + " activityNull=" + (activity == null));
+            return;
+        }
+
+        final Rect playerRect = new Rect();
+        final boolean playerVisible =
+                binding.playerPlaceholder.getGlobalVisibleRect(playerRect);
+        final Rect decorRect = new Rect();
+        activity.getWindow().getDecorView().getGlobalVisibleRect(decorRect);
+
+        int appBarOffset = 0;
+        final CoordinatorLayout.LayoutParams params =
+                (CoordinatorLayout.LayoutParams) binding.appBarLayout.getLayoutParams();
+        final AppBarLayout.Behavior behavior = (AppBarLayout.Behavior) params.getBehavior();
+        if (behavior != null) {
+            appBarOffset = behavior.getTopAndBottomOffset();
+        }
+
+        final boolean tabVisible = binding.tabLayout.getVisibility() == View.VISIBLE;
+        final boolean viewPagerVisible = binding.viewPager.getVisibility() == View.VISIBLE;
+        final boolean horizontal = DeviceUtils.isLandscape(activity);
+        final boolean playerOnly = isFullscreen()
+                && horizontal
+                && !tabVisible
+                && !viewPagerVisible
+                && appBarOffset == 0
+                && playerVisible
+                && playerRect.width() > 0
+                && playerRect.height() > 0;
+
+        PersistentPlayerLogger.log(activity,
+                "OrientationSwitchState reason=" + reason
+                        + " mode=" + (horizontal ? "horizontal" : "vertical")
+                        + " playerOnly=" + playerOnly
+                        + " fullscreen=" + isFullscreen()
+                        + " tabVisibility=" + visibilityToString(binding.tabLayout)
+                        + " viewPagerVisibility=" + visibilityToString(binding.viewPager)
+                        + " relatedItemsVisibility="
+                        + (binding.relatedItemsLayout == null
+                                ? "n/a" : visibilityToString(binding.relatedItemsLayout))
+                        + " appBarOffset=" + appBarOffset
+                        + " playerVisible=" + playerVisible
+                        + " playerRect=" + rectToShortString(playerRect)
+                        + " decorRect=" + rectToShortString(decorRect));
+    }
+
+    @NonNull
+    private String visibilityToString(@NonNull final View view) {
+        switch (view.getVisibility()) {
+            case View.VISIBLE:
+                return "VISIBLE";
+            case View.INVISIBLE:
+                return "INVISIBLE";
+            case View.GONE:
+                return "GONE";
+            default:
+                return String.valueOf(view.getVisibility());
+        }
+    }
+
+    @NonNull
+    private String rectToShortString(@NonNull final Rect rect) {
+        return rect.left + "," + rect.top + "-" + rect.right + "," + rect.bottom
+                + "(" + rect.width() + "x" + rect.height() + ")";
     }
 
     @NonNull

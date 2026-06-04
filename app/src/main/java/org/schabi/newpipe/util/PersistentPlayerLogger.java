@@ -1,7 +1,6 @@
 package org.schabi.newpipe.util;
 
 import android.content.Context;
-import android.os.Debug;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -42,8 +41,6 @@ public final class PersistentPlayerLogger {
                 writer.write(DATE_FORMAT.format(new Date()));
                 writer.write(" ");
                 writer.write(event);
-                writer.write(" ");
-                writer.write(memorySummary());
                 writer.newLine();
             } catch (final IOException e) {
                 Log.e(TAG, "Could not write persistent player log", e);
@@ -63,16 +60,5 @@ public final class PersistentPlayerLogger {
         if (!logFile.renameTo(oldLogFile)) {
             Log.w(TAG, "Could not rotate persistent player log");
         }
-    }
-
-    @NonNull
-    private static String memorySummary() {
-        final Runtime runtime = Runtime.getRuntime();
-        final Debug.MemoryInfo memoryInfo = new Debug.MemoryInfo();
-        Debug.getMemoryInfo(memoryInfo);
-        return "javaUsedKb=" + ((runtime.totalMemory() - runtime.freeMemory()) / 1024)
-                + " javaMaxKb=" + (runtime.maxMemory() / 1024)
-                + " nativeHeapKb=" + (Debug.getNativeHeapAllocatedSize() / 1024)
-                + " pssKb=" + memoryInfo.getTotalPss();
     }
 }

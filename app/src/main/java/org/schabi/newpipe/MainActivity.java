@@ -26,9 +26,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -136,6 +138,7 @@ public class MainActivity extends AppCompatActivity {
     // before firing a VIEW intent, so the player-startup path can be measured as a cache hit
     // (the realistic in-app "item was visible in a list, then tapped" flow). See StreamPrefetcher.
     private BroadcastReceiver debugPrefetchReceiver;
+    private BroadcastReceiver debugPlayerOrientationReceiver;
 
     // Keeps the launch/splash screen visible until the first feed thumbnails have been
     // prefetched into Picasso's memory cache, so the feed appears with thumbnails already
@@ -231,6 +234,7 @@ public class MainActivity extends AppCompatActivity {
         MigrationManager.showUserInfoIfPresent(this);
 
         registerDebugPrefetchReceiver();
+        registerDebugPlayerOrientationReceiver();
     }
 
     /**
@@ -263,6 +267,43 @@ public class MainActivity extends AppCompatActivity {
         };
         final IntentFilter filter = new IntentFilter("org.schabi.newpipe.debug.PREFETCH");
         ContextCompat.registerReceiver(this, debugPrefetchReceiver, filter,
+                ContextCompat.RECEIVER_EXPORTED);
+    }
+
+    /**
+     * DEBUG-only receiver for repeatable orientation/fullscreen transition profiling.
+     * <pre>
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.PLAYER_ORIENTATION \
+     *       --es orientation landscape -p org.schabi.newpipe.debug
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.PLAYER_ORIENTATION \
+     *       --es orientation portrait -p org.schabi.newpipe.debug
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.PLAYER_ORIENTATION \
+     *       --es orientation toggle -p org.schabi.newpipe.debug
+     * </pre>
+     */
+    private void registerDebugPlayerOrientationReceiver() {
+        if (!DEBUG) {
+            return;
+        }
+        debugPlayerOrientationReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(final Context context, final Intent intent) {
+                final String orientation = intent.getStringExtra("orientation");
+                final Fragment fragment = getSupportFragmentManager()
+                        .findFragmentById(R.id.fragment_player_holder);
+                if (fragment instanceof VideoDetailFragment) {
+                    ((VideoDetailFragment) fragment)
+                            .debugRequestPlayerOrientation(orientation);
+                } else {
+                    PersistentPlayerLogger.log(MainActivity.this,
+                            "OrientationSwitchTrace adb.noVideoDetailFragment orientation="
+                                    + orientation);
+                }
+            }
+        };
+        final IntentFilter filter = new IntentFilter(
+                "org.schabi.newpipe.debug.PLAYER_ORIENTATION");
+        ContextCompat.registerReceiver(this, debugPlayerOrientationReceiver, filter,
                 ContextCompat.RECEIVER_EXPORTED);
     }
 
@@ -695,6 +736,33 @@ public class MainActivity extends AppCompatActivity {
             unregisterReceiver(debugPrefetchReceiver);
             debugPrefetchReceiver = null;
         }
+        if (debugPlayerOrientationReceiver != null) {
+            unregisterReceiver(debugPlayerOrientationReceiver);
+            debugPlayerOrientationReceiver = null;
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(@NonNull final Configuration newConfig) {
+        final long startMs = SystemClock.elapsedRealtime();
+        PersistentPlayerLogger.log(this,
+                "OrientationSwitchTrace MainActivity.onConfigurationChanged.start"
+                        + " orientation=" + newConfig.orientation
+                        + " widthDp=" + newConfig.screenWidthDp
+                        + " heightDp=" + newConfig.screenHeightDp);
+        super.onConfigurationChanged(newConfig);
+        if (toggle != null) {
+            toggle.onConfigurationChanged(newConfig);
+        }
+
+        final Fragment fragment = getSupportFragmentManager()
+                .findFragmentById(R.id.fragment_player_holder);
+        if (fragment instanceof VideoDetailFragment) {
+            ((VideoDetailFragment) fragment).onHostConfigurationChanged(newConfig);
+        }
+        PersistentPlayerLogger.log(this,
+                "OrientationSwitchTrace MainActivity.onConfigurationChanged.end"
+                        + " durationMs=" + (SystemClock.elapsedRealtime() - startMs));
     }
 
     @Override
