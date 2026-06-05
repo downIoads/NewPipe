@@ -362,7 +362,7 @@
     <string name="app_language_android_13_and_up_key">app_language_android_13_and_up_key</string>
 
     <string name="feed_update_threshold_key">feed_update_threshold_key</string>
-    <string name="feed_update_threshold_default_value">300</string>
+    <string name="feed_update_threshold_default_value">120</string>
     <string name="feed_show_watched_items_key">feed_show_played_items</string>
     <string name="feed_show_partially_watched_items_key">feed_show_partially_watched_items</string>
     <string name="feed_show_future_items_key">feed_show_future_items</string>
@@ -372,6 +372,7 @@
     <!-- Values will be localized in runtime -->
     <string-array name="feed_update_threshold_options">
         <item>@string/feed_update_threshold_option_always_update</item>
+        <item>2 minutes</item>
         <item>5 minutes</item>
         <item>15 minutes</item>
         <item>1 hour</item>
@@ -382,6 +383,7 @@
     <!-- Threshold values in seconds -->
     <string-array name="feed_update_threshold_values">
         <item>0</item>
+        <item>120</item>
         <item>300</item>
         <item>900</item>
         <item>3600</item>

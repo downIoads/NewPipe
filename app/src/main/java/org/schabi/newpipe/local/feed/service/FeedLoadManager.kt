@@ -24,6 +24,7 @@ import org.schabi.newpipe.database.subscription.NotificationMode
 import org.schabi.newpipe.database.subscription.SubscriptionEntity
 import org.schabi.newpipe.extractor.Info
 import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.feed.FeedInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
@@ -237,6 +238,34 @@ class FeedLoadManager(private val context: Context) {
     }
 
     /**
+     * Recover real uploads for a single channel whose entire RSS feed window was Shorts (see the
+     * call site). Fetches the channel's Videos tab, which lists only long-form uploads and past
+     * livestreams (no Shorts) and, unlike the RSS feed, is paginated. The Videos tab's first page
+     * is already included in the channel response, so this is ~1 request. Returns up to
+     * [FALLBACK_VIDEO_LIMIT] non-Short videos.
+     */
+    private fun loadVideosTabFallback(
+        subscriptionEntity: SubscriptionEntity
+    ): List<StreamInfoItem> {
+        val channelInfo = getChannelInfo(
+            subscriptionEntity.serviceId,
+            subscriptionEntity.url,
+            true
+        ).blockingGet()
+
+        val videosTab = channelInfo.tabs.firstOrNull {
+            it.contentFilters.contains(ChannelTabs.VIDEOS)
+        } ?: return emptyList()
+
+        return getChannelTab(subscriptionEntity.serviceId, videosTab, true)
+            .blockingGet()
+            .relatedItems
+            .filterIsInstance<StreamInfoItem>()
+            .filterNot { isShort(it) }
+            .take(FALLBACK_VIDEO_LIMIT)
+    }
+
+    /**
      * True if the failure was caused by YouTube rate limiting us (HTTP 429, surfaced as a
      * [ReCaptchaException] by DownloaderImpl), either as the top-level error or as the cause of a
      * wrapping [FeedLoadService.RequestException]. Used to apply a brief reactive backoff.
@@ -280,6 +309,7 @@ class FeedLoadManager(private val context: Context) {
             var streams: List<StreamInfoItem>? = null
             val errors = ArrayList<Throwable>()
 
+            var usedFeedExtractor = false
             if (useFeedExtractor) {
                 NewPipe.getService(subscriptionEntity.serviceId)
                     .getFeedExtractor(subscriptionEntity.url)
@@ -291,6 +321,7 @@ class FeedLoadManager(private val context: Context) {
                         errors.addAll(feedInfo.errors)
                         originalInfo = feedInfo
                         streams = feedInfo.relatedItems
+                        usedFeedExtractor = true
                     }
             }
 
@@ -358,11 +389,42 @@ class FeedLoadManager(private val context: Context) {
                 streams = streams?.filterNot { isShort(it) }
             }
 
+            // Fallback for the rare case where the channel's whole 15-item RSS window was Shorts
+            // (so no actual videos survived the filter): the channel's recent real uploads were
+            // pushed out of the feed. For this one channel, fetch the (paginated, Shorts-free)
+            // Videos tab to recover up to FALLBACK_VIDEO_LIMIT videos. Costs ~1 request and is rare.
+            var fallbackMs = 0L
+            var fallbackVideos = -1
+            if (usedFeedExtractor && streams.isNullOrEmpty() &&
+                shortsDropped >= SHORTS_ONLY_FALLBACK_THRESHOLD
+            ) {
+                val fallbackStartMs = System.currentTimeMillis()
+                try {
+                    streams = loadVideosTabFallback(subscriptionEntity)
+                    fallbackVideos = streams.size
+                    fallbackMs = System.currentTimeMillis() - fallbackStartMs
+                    feedDbg(
+                        "SHORTS-FALLBACK ${label(subscriptionEntity)} " +
+                            "shortsDropped=$shortsDropped recoveredVideos=$fallbackVideos " +
+                            "tookMs=$fallbackMs"
+                    )
+                } catch (e: Throwable) {
+                    // Keep the empty RSS result rather than failing the whole subscription; there is
+                    // simply nothing new to show for it this refresh.
+                    fallbackMs = System.currentTimeMillis() - fallbackStartMs
+                    feedDbg(
+                        "SHORTS-FALLBACK FAILED ${label(subscriptionEntity)} tookMs=$fallbackMs",
+                        e
+                    )
+                }
+            }
+
             val tookMs = System.currentTimeMillis() - startMs
             val reqs = DownloaderImpl.feedRequestCount()
             // Breakdown appended to OK/PARTIAL so each subscription's slow phase is visible.
             val timing = "reqs=$reqs channelInfoMs=$channelInfoMs tabsMs=$tabsMs " +
-                "tabs=$tabsFetched moreMs=$moreItemsMs feedMs=$feedInfoMs shortsDropped=$shortsDropped"
+                "tabs=$tabsFetched moreMs=$moreItemsMs feedMs=$feedInfoMs shortsDropped=$shortsDropped" +
+                if (fallbackVideos >= 0) " fallbackMs=$fallbackMs fallbackVideos=$fallbackVideos" else ""
             if (errors.isEmpty()) {
                 feedDbg(
                     "OK ${label(subscriptionEntity)} streams=${streams?.size ?: 0} " +
@@ -544,6 +606,19 @@ class FeedLoadManager(private val context: Context) {
          * before retrying, to let the rate limit cool down. There is no longer any proactive stall.
          */
         private val RATE_LIMIT_BACKOFF_MILLIS = (300L..900L)
+
+        /**
+         * If the RSS feed returned a full window (15 entries) that were ALL Shorts, the channel's
+         * recent real uploads were pushed out of the feed; trigger the Videos-tab fallback. (The
+         * YouTube RSS feed always returns at most 15 entries.)
+         */
+        private const val SHORTS_ONLY_FALLBACK_THRESHOLD = 15
+
+        /**
+         * How many videos the Shorts-only fallback recovers from the Videos tab for the affected
+         * channel (the Videos tab's first page typically holds ~30 uploads).
+         */
+        private const val FALLBACK_VIDEO_LIMIT = 30
 
         /**
          * Number of items to buffer to mass-insert in the database.

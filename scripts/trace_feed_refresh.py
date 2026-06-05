@@ -279,9 +279,9 @@ def main() -> int:
                 summary.subs.append(parse_sub_line("PARTIAL", msg))
             elif msg.startswith("FAIL "):
                 summary.subs.append(parse_sub_line("FAIL", msg))
-            elif "NOT LOADED" in msg and ("markAsOutdated" in msg or "EXHAUSTED" in msg):
-                summary.not_loaded.append(msg)
             elif msg.startswith("REFRESH DONE"):
+                # NOTE: must be checked BEFORE the NOT LOADED branch below, because the REFRESH DONE
+                # message text itself contains both "NOT LOADED" and "markAsOutdated".
                 summary.done = True
                 summary.total_ms = _num("tookMs", msg)
                 summary.avg_ms = _num("avgMsPerSub", msg)
@@ -290,6 +290,8 @@ def main() -> int:
                 # give a moment for any trailing lines, then stop
                 time.sleep(0.5)
                 break
+            elif "NOT LOADED" in msg and ("markAsOutdated" in msg or "EXHAUSTED" in msg):
+                summary.not_loaded.append(msg)
     except KeyboardInterrupt:
         print("\n[interrupted]", file=sys.stderr)
         rc = 130
