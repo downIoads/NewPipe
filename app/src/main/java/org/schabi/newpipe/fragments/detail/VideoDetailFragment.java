@@ -508,7 +508,7 @@ public final class VideoDetailFragment
     //////////////////////////////////////////////////////////////////////////*/
 
     private void setOnClickListeners() {
-        binding.detailTitleRootLayout.setOnClickListener(v -> toggleTitleAndSecondaryControls());
+        binding.detailTitleRootLayout.setOnClickListener(v -> toggleTitle());
         binding.detailUploaderRootLayout.setOnClickListener(makeOnClickListener(info -> {
             if (isEmpty(info.getSubChannelUrl())) {
                 if (!isEmpty(info.getUploaderUrl())) {
@@ -558,8 +558,18 @@ public final class VideoDetailFragment
         });
         binding.detailControlsShare.setOnClickListener(makeOnClickListener(info ->
                 ShareUtils.copyToClipboard(requireContext(), info.getUrl())));
-        binding.detailControlsOpenInBrowser.setOnClickListener(makeOnClickListener(info ->
-                ShareUtils.openUrlInBrowser(requireContext(), info.getUrl())));
+        binding.detailControlsOpenInBrowser.setOnClickListener(makeOnClickListener(info -> {
+            // Ask for confirmation before leaving the app, showing the full URL — same pattern
+            // as tapping a link in the video description (see UrlLongPressClickableSpan).
+            final String streamUrl = info.getUrl();
+            new AlertDialog.Builder(requireContext())
+                    .setTitle(R.string.open_url_confirmation_title)
+                    .setMessage(streamUrl)
+                    .setNegativeButton(R.string.cancel, null)
+                    .setPositiveButton(R.string.open, (dialog, which) ->
+                            ShareUtils.openUrlInBrowser(requireContext(), streamUrl))
+                    .show();
+        }));
         binding.detailControlsPlayWithKodi.setOnClickListener(makeOnClickListener(info ->
                 KoreUtils.playWithKore(requireContext(), Uri.parse(info.getUrl()))));
         if (DEBUG) {
@@ -643,17 +653,20 @@ public final class VideoDetailFragment
         }
     }
 
-    private void toggleTitleAndSecondaryControls() {
-        if (binding.detailSecondaryControlPanel.getVisibility() == View.GONE) {
+    private void toggleTitle() {
+        // The title is expanded (full title) by default. Tapping it collapses it to one line,
+        // tapping again expands it back. The secondary control panel is always shown and is no
+        // longer affected by this toggle.
+        if (binding.detailVideoTitleView.getMaxLines() == 1) {
+            // expand
             binding.detailVideoTitleView.setMaxLines(10);
             animateRotation(binding.detailToggleSecondaryControlsView,
                     VideoPlayerUi.DEFAULT_CONTROLS_DURATION, 180);
-            binding.detailSecondaryControlPanel.setVisibility(View.VISIBLE);
         } else {
+            // collapse
             binding.detailVideoTitleView.setMaxLines(1);
             animateRotation(binding.detailToggleSecondaryControlsView,
                     VideoPlayerUi.DEFAULT_CONTROLS_DURATION, 0);
-            binding.detailSecondaryControlPanel.setVisibility(View.GONE);
         }
         // view pager height has changed, update the tab layout
         updateTabLayoutVisibility();
@@ -1893,12 +1906,14 @@ public final class VideoDetailFragment
         binding.positionView.setVisibility(View.GONE);
 
         binding.detailVideoTitleView.setText(title);
-        binding.detailVideoTitleView.setMaxLines(1);
+        // Title is expanded (full title) by default; tapping it toggles the collapsed state.
+        binding.detailVideoTitleView.setMaxLines(10);
         animate(binding.detailVideoTitleView, true, 0);
 
-        binding.detailToggleSecondaryControlsView.setVisibility(View.GONE);
-        binding.detailTitleRootLayout.setClickable(false);
-        binding.detailSecondaryControlPanel.setVisibility(View.GONE);
+        binding.detailToggleSecondaryControlsView.setRotation(180);
+        binding.detailToggleSecondaryControlsView.setVisibility(View.VISIBLE);
+        binding.detailTitleRootLayout.setClickable(true);
+        binding.detailSecondaryControlPanel.setVisibility(View.VISIBLE);
 
         if (binding.relatedItemsLayout != null) {
             if (showRelatedItems) {
@@ -2002,9 +2017,10 @@ public final class VideoDetailFragment
         }
 
         binding.detailTitleRootLayout.setClickable(true);
-        binding.detailToggleSecondaryControlsView.setRotation(0);
+        binding.detailVideoTitleView.setMaxLines(10);
+        binding.detailToggleSecondaryControlsView.setRotation(180);
         binding.detailToggleSecondaryControlsView.setVisibility(View.VISIBLE);
-        binding.detailSecondaryControlPanel.setVisibility(View.GONE);
+        binding.detailSecondaryControlPanel.setVisibility(View.VISIBLE);
 
         checkUpdateProgressInfo(info);
         PicassoHelper.loadDetailsThumbnail(info.getThumbnails()).tag(PICASSO_VIDEO_DETAILS_TAG)
