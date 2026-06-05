@@ -2,6 +2,7 @@ package org.schabi.newpipe.local.feed.service
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.preference.PreferenceManager
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
 import io.reactivex.rxjava3.core.Completable
@@ -28,6 +29,7 @@ import org.schabi.newpipe.ktx.getStringSafe
 import org.schabi.newpipe.local.feed.FeedDatabaseManager
 import org.schabi.newpipe.local.subscription.SubscriptionManager
 import org.schabi.newpipe.util.ChannelTabHelper
+import org.schabi.newpipe.util.DebugFileLog
 import org.schabi.newpipe.util.ExtractorHelper.getChannelInfo
 import org.schabi.newpipe.util.ExtractorHelper.getChannelTab
 import org.schabi.newpipe.util.ExtractorHelper.getMoreChannelTabItems
@@ -103,6 +105,11 @@ class FeedLoadManager(private val context: Context) {
             .doOnNext {
                 currentProgress.set(0)
                 maxProgress.set(it.size)
+                feedDbg(
+                    "REFRESH START groupId=$groupId ignoreOutdatedThreshold=$ignoreOutdatedThreshold " +
+                        "useFeedExtractor=$useFeedExtractor outdatedSubscriptions=${it.size}"
+                )
+                it.forEach { sub -> feedDbg("  to-load: ${label(sub)}") }
             }
             .filter { it.isNotEmpty() }
             .observeOn(AndroidSchedulers.mainThread())
@@ -169,6 +176,10 @@ class FeedLoadManager(private val context: Context) {
             !cancelSignal.get()
         ) {
             retryCount++
+            feedDbg(
+                "RETRY $retryCount/$MAX_RETRY_COUNT ${label(subscriptionEntity)} " +
+                    "reason=${retryReason(notification)}"
+            )
             notification = loadStreams(
                 subscriptionEntity,
                 useFeedExtractor,
@@ -176,7 +187,29 @@ class FeedLoadManager(private val context: Context) {
             )
         }
 
+        if (shouldRetry(notification)) {
+            // Still failing after all in-manager retries: this subscription will be marked
+            // outdated (last_updated=NULL) and therefore counts towards "Not loaded: N".
+            feedDbg(
+                "EXHAUSTED retries=$retryCount ${label(subscriptionEntity)} " +
+                    "reason=${retryReason(notification)} -> will count as NOT LOADED"
+            )
+        }
+
         return notification
+    }
+
+    private fun retryReason(notification: Notification<FeedUpdateInfo>): String {
+        return when {
+            notification.isOnError ->
+                "onError ${notification.error?.javaClass?.simpleName}: ${notification.error?.message}"
+
+            notification.value?.errors?.isNotEmpty() == true ->
+                "partialErrors=${notification.value!!.errors.size} " +
+                    "[${notification.value!!.errors.joinToString { it.javaClass.simpleName }}]"
+
+            else -> "none"
+        }
     }
 
     private fun shouldRetry(notification: Notification<FeedUpdateInfo>): Boolean {
@@ -194,6 +227,9 @@ class FeedLoadManager(private val context: Context) {
             error = e
             throw e
         }
+
+        feedDbg("BEGIN ${label(subscriptionEntity)}")
+        val startMs = System.currentTimeMillis()
 
         try {
             // check for and load new streams
@@ -265,6 +301,24 @@ class FeedLoadManager(private val context: Context) {
                     .filterIsInstance<StreamInfoItem>()
             }
 
+            val tookMs = System.currentTimeMillis() - startMs
+            if (errors.isEmpty()) {
+                feedDbg(
+                    "OK ${label(subscriptionEntity)} streams=${streams?.size ?: 0} tookMs=$tookMs"
+                )
+            } else {
+                // Partial success: streams may have been returned, but at least one tab/page
+                // failed. Because info.errors is non-empty, DatabaseConsumer will still mark this
+                // subscription as outdated, so it counts as NOT LOADED.
+                feedDbg(
+                    "PARTIAL ${label(subscriptionEntity)} streams=${streams?.size ?: 0} " +
+                        "errors=${errors.size} tookMs=$tookMs -> will count as NOT LOADED"
+                )
+                errors.forEachIndexed { i, t ->
+                    feedDbg("  partialError[#${i + 1}] ${label(subscriptionEntity)}", t)
+                }
+            }
+
             return Notification.createOnNext(
                 FeedUpdateInfo(
                     subscriptionEntity,
@@ -274,12 +328,15 @@ class FeedLoadManager(private val context: Context) {
                 )
             )
         } catch (e: Throwable) {
+            val tookMs = System.currentTimeMillis() - startMs
             val request = "${subscriptionEntity.serviceId}:${subscriptionEntity.url}"
+            val cause = error ?: e
+            feedDbg("FAIL ${label(subscriptionEntity)} tookMs=$tookMs", cause)
             val wrapper = FeedLoadService.RequestException(
                 subscriptionEntity.uid,
                 request,
                 // do this to prevent blockingGet() from wrapping into RuntimeException
-                error ?: e
+                cause
             )
             return Notification.createOnError(wrapper)
         }
@@ -296,6 +353,10 @@ class FeedLoadManager(private val context: Context) {
         FeedEventManager.postEvent(FeedEventManager.Event.ProgressEvent(R.string.feed_processing_message))
         feedDatabaseManager.removeOrphansOrOlderStreams()
 
+        feedDbg(
+            "REFRESH DONE collectedErrors=${feedResultsHolder.itemsErrors.size} " +
+                "(see DB markAsOutdated lines above for which subscription(s) are NOT LOADED)"
+        )
         FeedEventManager.postEvent(FeedEventManager.Event.SuccessResultEvent(feedResultsHolder.itemsErrors))
     }.doOnSubscribe {
         currentProgress.set(-1)
@@ -338,7 +399,18 @@ class FeedLoadManager(private val context: Context) {
                                         )
                                     }
                                 )
+                                feedDbg(
+                                    "DB markAsOutdated (partial errors) uid=${info.uid} " +
+                                        "svc=${info.serviceId} name=\"${info.name}\" url=${info.url} " +
+                                        "errors=${info.errors.size} -> NOT LOADED"
+                                )
                                 feedDatabaseManager.markAsOutdated(info.uid)
+                            } else {
+                                feedDbg(
+                                    "DB persisted OK uid=${info.uid} svc=${info.serviceId} " +
+                                        "name=\"${info.name}\" url=${info.url} " +
+                                        "newStreams=${info.newStreams.size}"
+                                )
                             }
                         }
 
@@ -347,7 +419,14 @@ class FeedLoadManager(private val context: Context) {
                             feedResultsHolder.addError(error!!)
 
                             if (error is FeedLoadService.RequestException) {
+                                feedDbg(
+                                    "DB markAsOutdated (onError) uid=${error.subscriptionId} " +
+                                        "request=${error.message} -> NOT LOADED",
+                                    error.cause
+                                )
                                 feedDatabaseManager.markAsOutdated(error.subscriptionId)
+                            } else {
+                                feedDbg("DB onError (non-RequestException)", error)
                             }
                         }
                     }
@@ -402,5 +481,36 @@ class FeedLoadManager(private val context: Context) {
          * How many times to retry loading a subscription after the first attempt failed.
          */
         private const val MAX_RETRY_COUNT = 2
+
+        /**
+         * logcat tag for the per-subscription feed-load trace. Filter with:
+         * `adb logcat -s FeedDebug`. Driven programmatically by
+         * `scripts/trace_feed_refresh.py` (which sends the
+         * `org.schabi.newpipe.debug.REFRESH_FEED` broadcast and parses these lines).
+         */
+        const val FEED_DEBUG_TAG = "FeedDebug"
+
+        /**
+         * Stable, greppable identifier for a subscription in the trace logs. Includes everything
+         * needed to tell exactly which subscription/channel a line refers to.
+         */
+        private fun label(e: SubscriptionEntity) = "svc=${e.serviceId} uid=${e.uid} name=\"${e.name}\" url=${e.url}"
+
+        /**
+         * Per-subscription feed-load tracing. Logs both to logcat (tag [FEED_DEBUG_TAG]) and to the
+         * persistent debug log file ([DebugFileLog]) so a "Not loaded: N" refresh can be diagnosed
+         * either live (logcat) or offline (pulled log file).
+         *
+         * Per CODEX.md: this was added to find the root cause of the "Not loaded: 1" refresh issue.
+         * Keep it; comment out the body (not the call sites) if it ever becomes too noisy.
+         */
+        fun feedDbg(msg: String, t: Throwable? = null) {
+            if (t == null) {
+                Log.i(FEED_DEBUG_TAG, msg)
+            } else {
+                Log.w(FEED_DEBUG_TAG, msg, t)
+            }
+            DebugFileLog.log(FEED_DEBUG_TAG, msg, t)
+        }
     }
 }

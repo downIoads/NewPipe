@@ -56,6 +56,13 @@ class FeedLoadService : Service() {
         private const val NOTIFICATION_SAMPLING_PERIOD = 1500
 
         const val EXTRA_GROUP_ID: String = "FeedLoadService.EXTRA_GROUP_ID"
+
+        /**
+         * When `true`, every subscription in the group is re-fetched regardless of the feed update
+         * threshold. Used by the DEBUG `REFRESH_FEED` adb trigger to force a full reload; normal
+         * (UI) refreshes leave this `false` and only fetch outdated/never-loaded subscriptions.
+         */
+        const val EXTRA_IGNORE_THRESHOLD: String = "FeedLoadService.EXTRA_IGNORE_THRESHOLD"
     }
 
     private var loadingDisposable: Disposable? = null
@@ -89,7 +96,8 @@ class FeedLoadService : Service() {
         setupBroadcastReceiver()
 
         val groupId = intent.getLongExtra(EXTRA_GROUP_ID, FeedGroupEntity.GROUP_ALL_ID)
-        loadingDisposable = feedLoadManager.startLoading(groupId)
+        val ignoreThreshold = intent.getBooleanExtra(EXTRA_IGNORE_THRESHOLD, false)
+        loadingDisposable = feedLoadManager.startLoading(groupId, ignoreThreshold)
             .observeOn(AndroidSchedulers.mainThread())
             .doOnSubscribe {
                 startForeground(NOTIFICATION_ID, notificationBuilder.build())

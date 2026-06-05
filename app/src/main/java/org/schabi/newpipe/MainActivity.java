@@ -84,6 +84,7 @@ import org.schabi.newpipe.fragments.list.playlist.PlaylistFragment;
 import org.schabi.newpipe.fragments.list.search.SearchFragment;
 import org.schabi.newpipe.local.feed.FeedDatabaseManager;
 import org.schabi.newpipe.local.feed.notifications.NotificationWorker;
+import org.schabi.newpipe.local.feed.service.FeedLoadService;
 import org.schabi.newpipe.player.Player;
 import org.schabi.newpipe.player.event.OnKeyDownListener;
 import org.schabi.newpipe.player.helper.PlayerHolder;
@@ -140,6 +141,9 @@ public class MainActivity extends AppCompatActivity {
     private BroadcastReceiver debugPrefetchReceiver;
     private BroadcastReceiver debugPlayerOrientationReceiver;
     private BroadcastReceiver debugBottomSheetReceiver;
+    // DEBUG-only receiver used by scripts/trace_feed_refresh.py to trigger a "What's new" feed
+    // refresh from adb and watch the per-subscription FeedDebug trace in real time.
+    private BroadcastReceiver debugFeedRefreshReceiver;
 
     // Keeps the launch/splash screen visible until the first feed thumbnails have been
     // prefetched into Picasso's memory cache, so the feed appears with thumbnails already
@@ -237,6 +241,7 @@ public class MainActivity extends AppCompatActivity {
         registerDebugPrefetchReceiver();
         registerDebugPlayerOrientationReceiver();
         registerDebugBottomSheetReceiver();
+        registerDebugFeedRefreshReceiver();
     }
 
     /**
@@ -343,6 +348,52 @@ public class MainActivity extends AppCompatActivity {
         };
         final IntentFilter filter = new IntentFilter("org.schabi.newpipe.debug.BOTTOM_SHEET");
         ContextCompat.registerReceiver(this, debugBottomSheetReceiver, filter,
+                ContextCompat.RECEIVER_EXPORTED);
+    }
+
+    /**
+     * DEBUG-only receiver to trigger a "What's new" feed refresh from adb, so the
+     * "Not loaded: N" issue can be reproduced programmatically while watching the
+     * per-subscription {@code FeedDebug} trace in real time:
+     * <pre>
+     *   # refresh all subscriptions (only outdated/never-loaded ones are fetched, exactly like
+     *   # the manual refresh button):
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.REFRESH_FEED -p org.schabi.newpipe.debug
+     *
+     *   # force-refresh ALL subscriptions ignoring the update threshold:
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.REFRESH_FEED \
+     *       --ez ignore_threshold true -p org.schabi.newpipe.debug
+     *
+     *   # refresh a single subscription group:
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.REFRESH_FEED \
+     *       --el group_id &lt;id&gt; -p org.schabi.newpipe.debug
+     * </pre>
+     * The actual loading is performed by {@link FeedLoadService}/{@code FeedLoadManager}, which
+     * emit the {@code FeedDebug} trace (see {@code adb logcat -s FeedDebug}). Driven by
+     * {@code scripts/trace_feed_refresh.py}.
+     */
+    private void registerDebugFeedRefreshReceiver() {
+        if (!DEBUG) {
+            return;
+        }
+        debugFeedRefreshReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(final Context context, final Intent intent) {
+                final long groupId = intent.getLongExtra("group_id",
+                        FeedGroupEntity.GROUP_ALL_ID);
+                final boolean ignoreThreshold =
+                        intent.getBooleanExtra("ignore_threshold", false);
+                Log.i("FeedDebug", "REFRESH_FEED broadcast received: groupId=" + groupId
+                        + " ignoreThreshold=" + ignoreThreshold + " -> starting FeedLoadService");
+                final Intent serviceIntent =
+                        new Intent(MainActivity.this, FeedLoadService.class)
+                                .putExtra(FeedLoadService.EXTRA_GROUP_ID, groupId)
+                                .putExtra(FeedLoadService.EXTRA_IGNORE_THRESHOLD, ignoreThreshold);
+                ContextCompat.startForegroundService(MainActivity.this, serviceIntent);
+            }
+        };
+        final IntentFilter filter = new IntentFilter("org.schabi.newpipe.debug.REFRESH_FEED");
+        ContextCompat.registerReceiver(this, debugFeedRefreshReceiver, filter,
                 ContextCompat.RECEIVER_EXPORTED);
     }
 
@@ -782,6 +833,10 @@ public class MainActivity extends AppCompatActivity {
         if (debugPlayerOrientationReceiver != null) {
             unregisterReceiver(debugPlayerOrientationReceiver);
             debugPlayerOrientationReceiver = null;
+        }
+        if (debugFeedRefreshReceiver != null) {
+            unregisterReceiver(debugFeedRefreshReceiver);
+            debugFeedRefreshReceiver = null;
         }
     }
 
