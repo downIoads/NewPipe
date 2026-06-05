@@ -16,13 +16,15 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import org.schabi.newpipe.DownloaderImpl
 import org.schabi.newpipe.R
 import org.schabi.newpipe.database.feed.model.FeedGroupEntity
 import org.schabi.newpipe.database.subscription.NotificationMode
 import org.schabi.newpipe.database.subscription.SubscriptionEntity
 import org.schabi.newpipe.extractor.Info
 import org.schabi.newpipe.extractor.NewPipe
-import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.feed.FeedInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.ktx.getStringSafe
@@ -45,6 +47,10 @@ class FeedLoadManager(private val context: Context) {
     private val cancelSignal = AtomicBoolean()
     private val feedResultsHolder = FeedResultsHolder()
 
+    /** Wall-clock start of the current refresh, for the overall "REFRESH DONE tookMs" line. */
+    private val refreshStartMs = AtomicLong(0L)
+    private val subscriptionsToLoad = AtomicInteger(0)
+
     val notification: Flowable<FeedLoadState> = notificationUpdater.map { description ->
         FeedLoadState(description, maxProgress.get(), currentProgress.get())
     }
@@ -65,10 +71,13 @@ class FeedLoadManager(private val context: Context) {
         ignoreOutdatedThreshold: Boolean = false
     ): Single<List<Notification<FeedUpdateInfo>>> {
         val defaultSharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-        val useFeedExtractor = defaultSharedPreferences.getBoolean(
-            context.getString(R.string.feed_use_dedicated_fetch_method_key),
-            false
-        )
+        // Always use the dedicated feed (RSS) fetch method for "What's new": for YouTube this is a
+        // single tiny request per channel returning the 15 newest uploads/livestreams, instead of
+        // the heavy multi-tab channel extraction (~2 large ~300 KB browse requests per channel).
+        // It is by far the biggest speed win for the refresh. `loadStreams` automatically falls
+        // back to the channel-tabs extractor for any service that has no dedicated feed extractor.
+        // (We no longer read feed_use_dedicated_fetch_method_key, which could be stale/disabled.)
+        val useFeedExtractor = true
 
         val outdatedThreshold = if (ignoreOutdatedThreshold) {
             OffsetDateTime.now(ZoneOffset.UTC)
@@ -96,18 +105,17 @@ class FeedLoadManager(private val context: Context) {
             else -> feedDatabaseManager.outdatedSubscriptionsForGroup(groupId, outdatedThreshold)
         }
 
-        // like `currentProgress`, but counts the number of YouTube extractions that have begun, so
-        // they can be properly throttled every once in a while (see doOnNext below)
-        val youtubeExtractionCount = AtomicInteger()
-
         return outdatedSubscriptions
             .take(1)
             .doOnNext {
                 currentProgress.set(0)
                 maxProgress.set(it.size)
+                refreshStartMs.set(System.currentTimeMillis())
+                subscriptionsToLoad.set(it.size)
                 feedDbg(
                     "REFRESH START groupId=$groupId ignoreOutdatedThreshold=$ignoreOutdatedThreshold " +
-                        "useFeedExtractor=$useFeedExtractor outdatedSubscriptions=${it.size}"
+                        "useFeedExtractor=$useFeedExtractor outdatedSubscriptions=${it.size} " +
+                        "parallelExtractions=$PARALLEL_EXTRACTIONS"
                 )
                 it.forEach { sub -> feedDbg("  to-load: ${label(sub)}") }
             }
@@ -120,15 +128,9 @@ class FeedLoadManager(private val context: Context) {
             .observeOn(Schedulers.io())
             .flatMap { Flowable.fromIterable(it) }
             .takeWhile { !cancelSignal.get() }
-            .doOnNext { subscriptionEntity ->
-                // throttle YouTube extractions once every BATCH_SIZE to avoid being rate limited
-                if (subscriptionEntity.serviceId == ServiceList.YouTube.serviceId) {
-                    val previousCount = youtubeExtractionCount.getAndIncrement()
-                    if (previousCount != 0 && previousCount % BATCH_SIZE == 0) {
-                        Thread.sleep(DELAY_BETWEEN_BATCHES_MILLIS.random())
-                    }
-                }
-            }
+            // No proactive throttle here: the dedicated feed (RSS) requests are tiny and cheap, so
+            // we extract at full parallelism. Rate limiting is handled reactively in
+            // loadStreamsWithRetries (a brief backoff only if YouTube actually returns HTTP 429).
             .parallel(PARALLEL_EXTRACTIONS, PARALLEL_EXTRACTIONS * 2)
             .runOn(Schedulers.io(), PARALLEL_EXTRACTIONS * 2)
             .filter { !cancelSignal.get() }
@@ -176,6 +178,15 @@ class FeedLoadManager(private val context: Context) {
             !cancelSignal.get()
         ) {
             retryCount++
+            // Only stall when YouTube actually rate-limited us (429 -> ReCaptchaException); a brief
+            // cooldown then helps the retry succeed. Other errors retry immediately.
+            if (isRateLimited(notification)) {
+                val backoff = RATE_LIMIT_BACKOFF_MILLIS.random()
+                feedDbg(
+                    "RATE LIMITED ${label(subscriptionEntity)} -> backoff ${backoff}ms before retry"
+                )
+                Thread.sleep(backoff)
+            }
             feedDbg(
                 "RETRY $retryCount/$MAX_RETRY_COUNT ${label(subscriptionEntity)} " +
                     "reason=${retryReason(notification)}"
@@ -216,6 +227,26 @@ class FeedLoadManager(private val context: Context) {
         return notification.isOnError || notification.value?.errors?.isNotEmpty() == true
     }
 
+    /**
+     * A YouTube Short, identified by its canonical "/shorts/<id>" URL (the RSS feed returns Shorts
+     * with such links, while regular uploads and livestreams use "/watch?v=<id>"). These are
+     * excluded from the feed because the user only wants uploaded videos and livestreams.
+     */
+    private fun isShort(item: StreamInfoItem): Boolean {
+        return item.url?.contains("/shorts/") == true
+    }
+
+    /**
+     * True if the failure was caused by YouTube rate limiting us (HTTP 429, surfaced as a
+     * [ReCaptchaException] by DownloaderImpl), either as the top-level error or as the cause of a
+     * wrapping [FeedLoadService.RequestException]. Used to apply a brief reactive backoff.
+     */
+    private fun isRateLimited(notification: Notification<FeedUpdateInfo>): Boolean {
+        fun isRecaptcha(t: Throwable?): Boolean = t is ReCaptchaException || t?.cause is ReCaptchaException
+        return isRecaptcha(notification.error) ||
+            notification.value?.errors?.any { isRecaptcha(it) } == true
+    }
+
     private fun loadStreams(
         subscriptionEntity: SubscriptionEntity,
         useFeedExtractor: Boolean,
@@ -230,6 +261,17 @@ class FeedLoadManager(private val context: Context) {
 
         feedDbg("BEGIN ${label(subscriptionEntity)}")
         val startMs = System.currentTimeMillis()
+        // Tag every HTTP request issued on this thread so DownloaderImpl can attribute its network
+        // time to this subscription in the FeedNet trace (cleared in `finally`).
+        DownloaderImpl.setFeedRequestTag("sub#${subscriptionEntity.uid}")
+
+        // Phase timings (ms) for the per-subscription breakdown logged below. They reveal whether a
+        // slow subscription is bound by the channel-page fetch, the per-tab fetches, or pagination.
+        var feedInfoMs = 0L
+        var channelInfoMs = 0L
+        var tabsMs = 0L
+        var tabsFetched = 0
+        var moreItemsMs = 0L
 
         try {
             // check for and load new streams
@@ -243,7 +285,9 @@ class FeedLoadManager(private val context: Context) {
                     .getFeedExtractor(subscriptionEntity.url)
                     ?.also { feedExtractor ->
                         // the user wants to use a feed extractor and there is one, use it
+                        val feedStartMs = System.currentTimeMillis()
                         val feedInfo = FeedInfo.getInfo(feedExtractor)
+                        feedInfoMs = System.currentTimeMillis() - feedStartMs
                         errors.addAll(feedInfo.errors)
                         originalInfo = feedInfo
                         streams = feedInfo.relatedItems
@@ -254,6 +298,7 @@ class FeedLoadManager(private val context: Context) {
                 // use the normal channel tabs extractor if either the user wants it, or
                 // the current service does not have a dedicated feed extractor
 
+                val channelInfoStartMs = System.currentTimeMillis()
                 val channelInfo = getChannelInfo(
                     subscriptionEntity.serviceId,
                     subscriptionEntity.url,
@@ -261,6 +306,7 @@ class FeedLoadManager(private val context: Context) {
                 )
                     .onErrorReturn(storeOriginalErrorAndRethrow)
                     .blockingGet()
+                channelInfoMs = System.currentTimeMillis() - channelInfoStartMs
                 errors.addAll(channelInfo.errors)
                 originalInfo = channelInfo
 
@@ -273,24 +319,27 @@ class FeedLoadManager(private val context: Context) {
                         )
                     }
                     .map {
-                        Pair(
-                            getChannelTab(subscriptionEntity.serviceId, it, true)
-                                .onErrorReturn(storeOriginalErrorAndRethrow)
-                                .blockingGet(),
-                            it
-                        )
+                        val tabStartMs = System.currentTimeMillis()
+                        val tabInfo = getChannelTab(subscriptionEntity.serviceId, it, true)
+                            .onErrorReturn(storeOriginalErrorAndRethrow)
+                            .blockingGet()
+                        tabsMs += System.currentTimeMillis() - tabStartMs
+                        tabsFetched++
+                        Pair(tabInfo, it)
                     }
                     .flatMap { (channelTabInfo, linkHandler) ->
                         errors.addAll(channelTabInfo.errors)
                         if (channelTabInfo.relatedItems.isEmpty() &&
                             channelTabInfo.nextPage != null
                         ) {
+                            val moreStartMs = System.currentTimeMillis()
                             val infoItemsPage = getMoreChannelTabItems(
                                 subscriptionEntity.serviceId,
                                 linkHandler,
                                 channelTabInfo.nextPage
                             )
                                 .blockingGet()
+                            moreItemsMs += System.currentTimeMillis() - moreStartMs
 
                             errors.addAll(infoItemsPage.errors)
                             return@flatMap infoItemsPage.items
@@ -301,10 +350,23 @@ class FeedLoadManager(private val context: Context) {
                     .filterIsInstance<StreamInfoItem>()
             }
 
+            // The "What's new" feed should only contain uploaded videos and (active/past)
+            // livestreams. YouTube's RSS feed mixes in Shorts as ".../shorts/<id>" links, so drop
+            // those. Scheduled/upcoming videos are naturally absent from the RSS feed.
+            val shortsDropped = streams?.count { isShort(it) } ?: 0
+            if (shortsDropped > 0) {
+                streams = streams?.filterNot { isShort(it) }
+            }
+
             val tookMs = System.currentTimeMillis() - startMs
+            val reqs = DownloaderImpl.feedRequestCount()
+            // Breakdown appended to OK/PARTIAL so each subscription's slow phase is visible.
+            val timing = "reqs=$reqs channelInfoMs=$channelInfoMs tabsMs=$tabsMs " +
+                "tabs=$tabsFetched moreMs=$moreItemsMs feedMs=$feedInfoMs shortsDropped=$shortsDropped"
             if (errors.isEmpty()) {
                 feedDbg(
-                    "OK ${label(subscriptionEntity)} streams=${streams?.size ?: 0} tookMs=$tookMs"
+                    "OK ${label(subscriptionEntity)} streams=${streams?.size ?: 0} " +
+                        "tookMs=$tookMs $timing"
                 )
             } else {
                 // Partial success: streams may have been returned, but at least one tab/page
@@ -312,7 +374,7 @@ class FeedLoadManager(private val context: Context) {
                 // subscription as outdated, so it counts as NOT LOADED.
                 feedDbg(
                     "PARTIAL ${label(subscriptionEntity)} streams=${streams?.size ?: 0} " +
-                        "errors=${errors.size} tookMs=$tookMs -> will count as NOT LOADED"
+                        "errors=${errors.size} tookMs=$tookMs $timing -> will count as NOT LOADED"
                 )
                 errors.forEachIndexed { i, t ->
                     feedDbg("  partialError[#${i + 1}] ${label(subscriptionEntity)}", t)
@@ -329,9 +391,15 @@ class FeedLoadManager(private val context: Context) {
             )
         } catch (e: Throwable) {
             val tookMs = System.currentTimeMillis() - startMs
+            val reqs = DownloaderImpl.feedRequestCount()
             val request = "${subscriptionEntity.serviceId}:${subscriptionEntity.url}"
             val cause = error ?: e
-            feedDbg("FAIL ${label(subscriptionEntity)} tookMs=$tookMs", cause)
+            feedDbg(
+                "FAIL ${label(subscriptionEntity)} tookMs=$tookMs reqs=$reqs " +
+                    "channelInfoMs=$channelInfoMs tabsMs=$tabsMs tabs=$tabsFetched " +
+                    "moreMs=$moreItemsMs feedMs=$feedInfoMs",
+                cause
+            )
             val wrapper = FeedLoadService.RequestException(
                 subscriptionEntity.uid,
                 request,
@@ -339,6 +407,8 @@ class FeedLoadManager(private val context: Context) {
                 cause
             )
             return Notification.createOnError(wrapper)
+        } finally {
+            DownloaderImpl.clearFeedRequestTag()
         }
     }
 
@@ -353,8 +423,14 @@ class FeedLoadManager(private val context: Context) {
         FeedEventManager.postEvent(FeedEventManager.Event.ProgressEvent(R.string.feed_processing_message))
         feedDatabaseManager.removeOrphansOrOlderStreams()
 
+        val start = refreshStartMs.get()
+        val totalMs = if (start > 0) System.currentTimeMillis() - start else -1
+        val count = subscriptionsToLoad.get()
+        val perSub = if (count > 0 && totalMs > 0) totalMs / count else -1
         feedDbg(
-            "REFRESH DONE collectedErrors=${feedResultsHolder.itemsErrors.size} " +
+            "REFRESH DONE tookMs=$totalMs subscriptions=$count avgMsPerSub=$perSub " +
+                "parallelExtractions=$PARALLEL_EXTRACTIONS " +
+                "collectedErrors=${feedResultsHolder.itemsErrors.size} " +
                 "(see DB markAsOutdated lines above for which subscription(s) are NOT LOADED)"
         )
         FeedEventManager.postEvent(FeedEventManager.Event.SuccessResultEvent(feedResultsHolder.itemsErrors))
@@ -456,21 +532,18 @@ class FeedLoadManager(private val context: Context) {
         const val GROUP_NOTIFICATION_ENABLED = -2L
 
         /**
-         * How many extractions will be running in parallel.
+         * How many extractions will be running in parallel. The dedicated feed (RSS) fetch is a
+         * single tiny request per channel, so we can afford much more parallelism than the old
+         * heavy channel-tabs path (which was capped at 3). This is the main lever for refresh speed.
          */
-        private const val PARALLEL_EXTRACTIONS = 3
+        private const val PARALLEL_EXTRACTIONS = 8
 
         /**
-         * How many YouTube extractions to perform before waiting [DELAY_BETWEEN_BATCHES_MILLIS]
-         * to avoid being rate limited
+         * Reactive-only backoff: if (and only if) a subscription fails because YouTube returned a
+         * rate-limit (HTTP 429 -> [ReCaptchaException]), wait a brief random delay in this range
+         * before retrying, to let the rate limit cool down. There is no longer any proactive stall.
          */
-        private const val BATCH_SIZE = 50
-
-        /**
-         * Wait a random delay in this range once every [BATCH_SIZE] YouTube extractions to avoid
-         * being rate limited
-         */
-        private val DELAY_BETWEEN_BATCHES_MILLIS = (6000L..12000L)
+        private val RATE_LIMIT_BACKOFF_MILLIS = (300L..900L)
 
         /**
          * Number of items to buffer to mass-insert in the database.

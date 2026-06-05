@@ -50,6 +50,68 @@ public final class DownloaderImpl extends Downloader {
     private final Map<String, String> mCookies;
     private final OkHttpClient client;
 
+    /**
+     * Per-subscription network tracing for the "What's new" feed refresh.
+     *
+     * <p>{@link org.schabi.newpipe.local.feed.service.FeedLoadManager} sets a short tag (e.g.
+     * {@code sub#42}) on the current extraction thread before fetching a subscription, and clears
+     * it afterwards. While a tag is set, every HTTP request issued from that thread is timed and
+     * logged to the {@code FeedNet} tag, so we can see exactly which network call (browse / rss /
+     * next / player) of which subscription is slow. Filter with {@code adb logcat -s FeedNet}.</p>
+     *
+     * <p>It is a {@link ThreadLocal} because feed extractions run blocking on a pool of parallel
+     * RxJava IO threads (one subscription per thread at a time), so the tag of the thread uniquely
+     * identifies the subscription whose request is in flight.</p>
+     */
+    public static final String FEED_NET_TAG = "FeedNet";
+    private static final ThreadLocal<String> FEED_REQUEST_TAG = new ThreadLocal<>();
+    private static final ThreadLocal<int[]> FEED_REQUEST_COUNT = new ThreadLocal<>();
+
+    // Begin tracing network requests on the current thread under the given tag.
+    public static void setFeedRequestTag(final String tag) {
+        FEED_REQUEST_TAG.set(tag);
+        FEED_REQUEST_COUNT.set(new int[]{0});
+    }
+
+    // Stop tracing network requests on the current thread.
+    public static void clearFeedRequestTag() {
+        FEED_REQUEST_TAG.remove();
+        FEED_REQUEST_COUNT.remove();
+    }
+
+    // Number of traced HTTP requests issued on the current thread since the last tag was set.
+    public static int feedRequestCount() {
+        final int[] c = FEED_REQUEST_COUNT.get();
+        return c == null ? 0 : c[0];
+    }
+
+    // Classify a YouTube/innertube URL into a short, greppable request kind so the FeedNet trace
+    // is readable at a glance (rss / browse / next / player / search).
+    private static String classifyUrl(final String url) {
+        try {
+            final java.net.URI u = java.net.URI.create(url);
+            final String host = u.getHost() == null ? "?" : u.getHost();
+            final String path = u.getPath() == null ? "" : u.getPath();
+            final String kind;
+            if (url.contains("feeds/videos.xml")) {
+                kind = "rss";
+            } else if (path.contains("/youtubei/v1/browse")) {
+                kind = "browse";
+            } else if (path.contains("/youtubei/v1/next")) {
+                kind = "next";
+            } else if (path.contains("/youtubei/v1/player")) {
+                kind = "player";
+            } else if (path.contains("/youtubei/v1/search")) {
+                kind = "search";
+            } else {
+                kind = path.isEmpty() ? "/" : path;
+            }
+            return host + " " + kind;
+        } catch (final Exception e) {
+            return url;
+        }
+    }
+
     private DownloaderImpl(final OkHttpClient.Builder builder) {
         this.client = builder
                 .readTimeout(30, TimeUnit.SECONDS)
@@ -171,16 +233,40 @@ public final class DownloaderImpl extends Downloader {
                     requestBuilder.addHeader(headerName, headerValue));
         });
 
+        // Trace this request's wall time only while a feed refresh has tagged this thread, to keep
+        // the FeedNet log focused on the "What's new" refresh (see FEED_REQUEST_TAG).
+        final String feedTag = FEED_REQUEST_TAG.get();
+        final long netStartMs = feedTag == null ? 0L : System.currentTimeMillis();
+
         try (
                 okhttp3.Response response = client.newCall(requestBuilder.build()).execute()
         ) {
             if (response.code() == 429) {
+                if (feedTag != null) {
+                    Log.w(FEED_NET_TAG, "ms=" + (System.currentTimeMillis() - netStartMs)
+                            + " code=429 kind=" + classifyUrl(url) + " tag=" + feedTag
+                            + " -> RATE LIMITED");
+                }
                 throw new ReCaptchaException("reCaptcha Challenge requested", url);
             }
 
             String responseBodyToReturn = null;
             try (ResponseBody body = response.body()) {
                 responseBodyToReturn = body.string();
+            }
+
+            if (feedTag != null) {
+                // includes connect + send + receive + full body read (the network-bound part)
+                final long netMs = System.currentTimeMillis() - netStartMs;
+                final int[] counter = FEED_REQUEST_COUNT.get();
+                if (counter != null) {
+                    counter[0]++;
+                }
+                Log.i(FEED_NET_TAG, "ms=" + netMs + " code=" + response.code()
+                        + " reqBytes=" + (dataToSend == null ? 0 : dataToSend.length)
+                        + " respChars=" + (responseBodyToReturn == null
+                                ? 0 : responseBodyToReturn.length())
+                        + " kind=" + classifyUrl(url) + " tag=" + feedTag);
             }
 
             if (responseBodyToReturn != null && url.contains(YOUTUBE_PLAYER_ENDPOINT)) {
