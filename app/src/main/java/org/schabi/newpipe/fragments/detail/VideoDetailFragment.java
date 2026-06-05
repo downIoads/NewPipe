@@ -1758,6 +1758,16 @@ public final class VideoDetailFragment
         super.handleError();
         setErrorImage(R.drawable.not_available_monkey);
 
+        // Pin the thumbnail to its normal (16:9 / half-screen) height. On the error path nothing
+        // else sizes it, and since the player is now prewarmed+bound on open, initViews() skips its
+        // setHeightThumbnail() call. Without this the ImageView stays at its XML WRAP_CONTENT and
+        // measures to ~2x the screen height inside the scrolling AppBar, filling the screen with
+        // the black thumbnail background and pushing the error emoji + message off-screen. See the
+        // ErrorLayoutTrace logs and "scheduled video shows mostly black" bug.
+        if (getView() != null) {
+            setHeightThumbnail();
+        }
+
         if (binding.relatedItemsLayout != null) { // hide related streams for tablets
             binding.relatedItemsLayout.setVisibility(View.INVISIBLE);
         }
@@ -1765,6 +1775,41 @@ public final class VideoDetailFragment
         // hide comments / related streams / description tabs
         binding.viewPager.setVisibility(View.GONE);
         binding.tabLayout.setVisibility(View.GONE);
+
+        // ytLog: uncomment to re-diagnose the thumbnail-height layout (see logErrorLayoutHeights).
+        // logErrorLayoutHeights("handleError.immediate");
+        // Capture again after a layout pass so we see the final measured heights.
+        // new Handler(Looper.getMainLooper()).post(() ->
+        //         logErrorLayoutHeights("handleError.posted"));
+    }
+
+    // ytLog: diagnose the "scheduled video shows mostly black, emoji pushed off-screen" bug.
+    // Logs the measured/requested heights of the thumbnail stack vs. the screen. Body is commented
+    // out now that the root cause is confirmed (thumbnail left at WRAP_CONTENT on the error path);
+    // uncomment the body and the calls in handleError() to re-diagnose.
+    private void logErrorLayoutHeights(@NonNull final String when) {
+        // if (binding == null || activity == null) {
+        //     return;
+        // }
+        // final DisplayMetrics m = getResources().getDisplayMetrics();
+        // final android.view.ViewGroup.LayoutParams ivLp =
+        //         binding.detailThumbnailImageView.getLayoutParams();
+        // PersistentPlayerLogger.log(activity, "ErrorLayoutTrace " + when
+        //         + " screen=" + m.widthPixels + "x" + m.heightPixels
+        //         + " fullscreen=" + isFullscreen()
+        //         + " playerBound=" + playerHolder.isBound()
+        //         + " playerAvailable=" + isPlayerAvailable()
+        //         + " | rootH=" + requireView().getHeight()
+        //         + " mainContentH=" + binding.detailMainContent.getHeight()
+        //         + " appBarH=" + binding.appBarLayout.getHeight()
+        //         + " thumbRootH=" + binding.detailThumbnailRootLayout.getHeight()
+        //         + " imageViewH=" + binding.detailThumbnailImageView.getHeight()
+        //         + " imageViewLpH=" + ivLp.height
+        //         + " imageViewMinH=" + binding.detailThumbnailImageView.getMinimumHeight()
+        //         + " placeholderH=" + binding.playerPlaceholder.getHeight()
+        //         + " contentRootH=" + binding.detailContentRootLayout.getHeight()
+        //         + " titleRootH=" + binding.detailTitleRootLayout.getHeight()
+        //         + " errorPanelH=" + binding.errorPanel.getRoot().getHeight());
     }
 
     private void hideAgeRestrictedContent() {
