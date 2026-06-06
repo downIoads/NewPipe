@@ -81,6 +81,26 @@ class FeedDatabaseManager(context: Context) {
         return streamTable.exists(stream.serviceId, stream.url)
     }
 
+    /**
+     * Patch a stored stream's duration if it is still unknown. Used by the feed's background
+     * duration enrichment (the fast RSS path has no duration). Returns true if a row was updated.
+     */
+    fun setStreamDurationIfMissing(serviceId: Int, url: String, duration: Long): Boolean {
+        return streamTable.setDurationIfMissing(serviceId, url, duration) > 0
+    }
+
+    /**
+     * Of [urls], the subset whose stored stream still has an unknown duration. Lets the feed's
+     * background enrichment skip the network entirely for channels whose items already have a
+     * duration.
+     */
+    fun urlsWithMissingDuration(serviceId: Int, urls: List<String>): List<String> {
+        if (urls.isEmpty()) {
+            return emptyList()
+        }
+        return streamTable.urlsWithMissingDuration(serviceId, urls)
+    }
+
     fun upsertAll(
         subscriptionId: Long,
         items: List<StreamInfoItem>,

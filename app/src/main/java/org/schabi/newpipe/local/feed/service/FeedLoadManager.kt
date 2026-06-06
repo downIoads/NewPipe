@@ -146,7 +146,16 @@ class FeedLoadManager(private val context: Context) {
             .doOnNext(DatabaseConsumer())
             .subscribeOn(Schedulers.io())
             .toList()
-            .flatMap { x -> postProcessFeed().toSingleDefault(x.flatten()) }
+            .flatMap { x ->
+                val notifications = x.flatten()
+                // First finish the refresh (postProcessFeed fires SuccessResultEvent and logs
+                // "REFRESH DONE", so the feed is shown immediately), THEN enrich missing durations
+                // in the background. This keeps the perceived refresh time unchanged while the
+                // (RSS) duration-less overlays get filled in a moment later.
+                postProcessFeed()
+                    .andThen(enrichMissingDurations(notifications))
+                    .toSingleDefault(notifications)
+            }
     }
 
     fun cancel() {
@@ -263,6 +272,137 @@ class FeedLoadManager(private val context: Context) {
             .filterIsInstance<StreamInfoItem>()
             .filterNot { isShort(it) }
             .take(FALLBACK_VIDEO_LIMIT)
+    }
+
+    // /////////////////////////////////////////////////////////////////////////
+    // Background duration enrichment
+    // /////////////////////////////////////////////////////////////////////////
+
+    /**
+     * The fast RSS feed path returns no duration (the YouTube feed XML simply does not contain
+     * one), so its items show no length overlay on their thumbnail. This runs AFTER the refresh
+     * has completed (and the feed is already on screen) and, only for channels that actually have
+     * at least one stored item with a missing duration, fetches the channel's Videos tab once to
+     * learn the durations and patches them into the DB. When at least one row is patched it posts
+     * an [IdleEvent] so the feed re-renders with the overlays.
+     *
+     * Targeting stored-but-missing (rather than just "new") items also backfills the items that
+     * earlier RSS refreshes already saved without a duration. Best-effort: any failure just leaves
+     * the next refresh to try again, and once durations are filled in a refresh does no extra
+     * network work (the per-channel DB check below short-circuits before any Videos-tab fetch).
+     */
+    private fun enrichMissingDurations(
+        notifications: List<Notification<FeedUpdateInfo>>
+    ): Completable = Completable.defer {
+        if (cancelSignal.get()) {
+            return@defer Completable.complete()
+        }
+
+        val candidates = notifications.mapNotNull { it.value }
+            .filter { it.streams.isNotEmpty() }
+        if (candidates.isEmpty()) {
+            return@defer Completable.complete()
+        }
+
+        val startMs = System.currentTimeMillis()
+        val patched = AtomicInteger(0)
+        val channelsFetched = AtomicInteger(0)
+
+        Flowable.fromIterable(candidates)
+            .takeWhile { !cancelSignal.get() }
+            .parallel(PARALLEL_EXTRACTIONS, PARALLEL_EXTRACTIONS * 2)
+            .runOn(Schedulers.io(), PARALLEL_EXTRACTIONS * 2)
+            .map { info -> enrichChannelDurations(info, patched, channelsFetched) }
+            .sequential()
+            .ignoreElements()
+            .doOnComplete {
+                val tookMs = System.currentTimeMillis() - startMs
+                if (channelsFetched.get() > 0 || patched.get() > 0) {
+                    feedDbg(
+                        "DURATION-ENRICH done channelsFetched=${channelsFetched.get()} " +
+                            "patched=${patched.get()} tookMs=$tookMs"
+                    )
+                }
+                if (patched.get() > 0) {
+                    // Make the FeedViewModel re-read the DB so the freshly-patched overlays appear.
+                    // IdleEvent re-renders without the loadJustCompleted side effects (no snackbar/
+                    // auto-retry) that a second SuccessResultEvent would trigger.
+                    FeedEventManager.postEvent(FeedEventManager.Event.IdleEvent)
+                }
+            }
+    }
+
+    /**
+     * Enrich a single channel's stored, duration-less streams. First checks the DB for which of
+     * this channel's current items are missing a duration; only if some are does it fetch the
+     * Videos tab once (the items are recent uploads, so they are on its first page) and patch each
+     * matching duration in. Swallows all errors so it never fails the already-completed refresh.
+     */
+    private fun enrichChannelDurations(
+        info: FeedUpdateInfo,
+        patched: AtomicInteger,
+        channelsFetched: AtomicInteger
+    ) {
+        try {
+            val candidateUrls = info.streams.mapNotNull { it.url }.distinct()
+            val missingUrls = feedDatabaseManager
+                .urlsWithMissingDuration(info.serviceId, candidateUrls)
+                .toHashSet()
+            if (missingUrls.isEmpty()) {
+                return
+            }
+
+            channelsFetched.incrementAndGet()
+            val durations = fetchVideoDurations(info.serviceId, info.url)
+            if (durations.isEmpty()) {
+                return
+            }
+
+            var localPatched = 0
+            for (url in missingUrls) {
+                val duration = durations[videoKey(url)] ?: continue
+                if (duration > 0 &&
+                    feedDatabaseManager.setStreamDurationIfMissing(info.serviceId, url, duration)
+                ) {
+                    localPatched++
+                }
+            }
+            patched.addAndGet(localPatched)
+            feedDbg(
+                "DURATION-ENRICH channel name=\"${info.name}\" url=${info.url} " +
+                    "missing=${missingUrls.size} patched=$localPatched"
+            )
+        } catch (e: Throwable) {
+            feedDbg("DURATION-ENRICH FAILED name=\"${info.name}\" url=${info.url}", e)
+        }
+    }
+
+    /**
+     * Fetch a channel's Videos-tab items (which carry real durations) and return a
+     * [videoKey] -> duration map. ~1 reused browse request per channel.
+     */
+    private fun fetchVideoDurations(serviceId: Int, channelUrl: String): Map<String, Long> {
+        val channelInfo = getChannelInfo(serviceId, channelUrl, true).blockingGet()
+        val videosTab = channelInfo.tabs.firstOrNull {
+            it.contentFilters.contains(ChannelTabs.VIDEOS)
+        } ?: return emptyMap()
+
+        return getChannelTab(serviceId, videosTab, true)
+            .blockingGet()
+            .relatedItems
+            .filterIsInstance<StreamInfoItem>()
+            .filter { it.duration > 0 && it.url != null }
+            .associate { videoKey(it.url!!) to it.duration }
+    }
+
+    /**
+     * Stable key for matching the same video across the RSS feed and the Videos tab. For YouTube
+     * this is the 11-char video id, so extra/ordering-different query params do not break the
+     * match; for other services (and unexpected URL shapes) it falls back to the full URL, which
+     * is fine because both sides come from the same extractor.
+     */
+    private fun videoKey(url: String): String {
+        return YOUTUBE_VIDEO_ID_REGEX.find(url)?.groupValues?.get(1) ?: url
     }
 
     /**
@@ -619,6 +759,12 @@ class FeedLoadManager(private val context: Context) {
          * channel (the Videos tab's first page typically holds ~30 uploads).
          */
         private const val FALLBACK_VIDEO_LIMIT = 30
+
+        /**
+         * Extracts the 11-char YouTube video id from a watch URL (`...?v=<id>` / `...&v=<id>`).
+         * Used by the background duration enrichment to match RSS items against Videos-tab items.
+         */
+        private val YOUTUBE_VIDEO_ID_REGEX = Regex("[?&]v=([A-Za-z0-9_-]{11})")
 
         /**
          * Number of items to buffer to mass-insert in the database.

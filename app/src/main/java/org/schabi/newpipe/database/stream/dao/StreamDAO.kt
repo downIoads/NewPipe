@@ -32,6 +32,32 @@ abstract class StreamDAO : BasicDAO<StreamEntity> {
     @Query("UPDATE streams SET uploader_url = :uploaderUrl WHERE url = :url AND service_id = :serviceId")
     abstract fun setUploaderUrl(serviceId: Long, url: String, uploaderUrl: String): Completable
 
+    /**
+     * Fill in a stream's duration only if it is currently unknown (`< 0`). Used by the feed's
+     * background duration enrichment: the fast RSS feed path carries no duration, so after the
+     * refresh we look durations up and patch them in here. The `duration < 0` guard makes this a
+     * no-op for streams that already have a real duration, so it never clobbers better data.
+     *
+     * @return the number of rows updated (0 or 1).
+     */
+    @Query(
+        "UPDATE streams SET duration = :duration " +
+            "WHERE url = :url AND service_id = :serviceId AND duration < 0"
+    )
+    abstract fun setDurationIfMissing(serviceId: Int, url: String, duration: Long): Int
+
+    /**
+     * Of the given URLs, return those whose stored stream has an unknown duration (`< 0`). Used by
+     * the feed's background duration enrichment to decide, per channel, whether a (costly) Videos-
+     * tab fetch is even needed: once durations are filled in, this returns empty and no fetch
+     * happens, so steady-state refreshes do no extra network work.
+     */
+    @Query(
+        "SELECT url FROM streams " +
+            "WHERE service_id = :serviceId AND duration < 0 AND url IN (:urls)"
+    )
+    abstract fun urlsWithMissingDuration(serviceId: Int, urls: List<String>): List<String>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     internal abstract fun silentInsertInternal(stream: StreamEntity): Long
 
