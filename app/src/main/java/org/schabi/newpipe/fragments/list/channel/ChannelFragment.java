@@ -100,7 +100,6 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
     private FragmentChannelBinding binding;
     private TabAdapter tabAdapter;
 
-    private MenuItem menuRssButton;
     private MenuItem menuNotifyButton;
     private SubscriptionEntity channelSubscription;
     private MenuProvider menuProvider;
@@ -155,9 +154,7 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
 
                 @Override
                 public void onPrepareMenu(@NonNull final Menu menu) {
-                    menuRssButton = menu.findItem(R.id.menu_item_rss);
                     menuNotifyButton = menu.findItem(R.id.menu_item_notify);
-                    updateRssButton();
                     updateNotifyButton(channelSubscription);
                 }
 
@@ -171,11 +168,6 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
                             break;
                         case R.id.action_settings:
                             NavigationHelper.openSettings(requireContext());
-                            break;
-                        case R.id.menu_item_rss:
-                            if (currentInfo != null) {
-                                ShareUtils.openUrlInApp(requireContext(), currentInfo.getFeedUrl());
-                            }
                             break;
                         case R.id.menu_item_openInBrowser:
                             if (currentInfo != null) {
@@ -418,13 +410,6 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
         animate(binding.channelSubscribeButton, true, 100, AnimationType.LIGHT_SCALE_AND_ALPHA);
     }
 
-    private void updateRssButton() {
-        if (menuRssButton == null || currentInfo == null) {
-            return;
-        }
-        menuRssButton.setVisible(!TextUtils.isEmpty(currentInfo.getFeedUrl()));
-    }
-
     private void updateNotifyButton(@Nullable final SubscriptionEntity subscription) {
         if (menuNotifyButton == null) {
             return;
@@ -660,8 +645,6 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
             binding.subChannelTitleView.setVisibility(View.VISIBLE);
             binding.subChannelAvatarView.setVisibility(View.VISIBLE);
         }
-
-        updateRssButton();
 
         channelContentNotSupported = false;
         for (final Throwable throwable : result.getErrors()) {
