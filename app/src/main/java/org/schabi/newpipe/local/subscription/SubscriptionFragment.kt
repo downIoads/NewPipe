@@ -1,23 +1,15 @@
 package org.schabi.newpipe.local.subscription
 
-import android.app.Activity
 import android.content.Context
 import android.content.DialogInterface
-import android.content.Intent
 import android.os.Bundle
 import android.os.Parcelable
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuInflater
-import android.view.MenuItem
-import android.view.SubMenu
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.MimeTypeMap
 import android.widget.Toast
-import androidx.activity.result.ActivityResult
-import androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult
-import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.GridLayoutManager
@@ -26,16 +18,12 @@ import com.xwray.groupie.GroupAdapter
 import com.xwray.groupie.Section
 import com.xwray.groupie.viewbinding.GroupieViewHolder
 import io.reactivex.rxjava3.disposables.CompositeDisposable
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import org.schabi.newpipe.R
 import org.schabi.newpipe.databinding.DialogTitleBinding
 import org.schabi.newpipe.databinding.FeedItemCarouselBinding
 import org.schabi.newpipe.databinding.FragmentSubscriptionBinding
 import org.schabi.newpipe.error.ErrorInfo
 import org.schabi.newpipe.error.UserAction
-import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.fragments.BaseStateFragment
 import org.schabi.newpipe.fragments.ScrollableTab
@@ -43,13 +31,6 @@ import org.schabi.newpipe.ktx.animate
 import org.schabi.newpipe.local.subscription.SubscriptionViewModel.SubscriptionState
 import org.schabi.newpipe.local.subscription.item.ChannelItem
 import org.schabi.newpipe.local.subscription.item.ImportSubscriptionsHintPlaceholderItem
-import org.schabi.newpipe.local.subscription.services.SubscriptionsExportService
-import org.schabi.newpipe.local.subscription.services.SubscriptionsImportService
-import org.schabi.newpipe.local.subscription.services.SubscriptionsImportService.KEY_MODE
-import org.schabi.newpipe.local.subscription.services.SubscriptionsImportService.KEY_VALUE
-import org.schabi.newpipe.local.subscription.services.SubscriptionsImportService.PREVIOUS_EXPORT_MODE
-import org.schabi.newpipe.streams.io.NoFileManagerSafeGuard
-import org.schabi.newpipe.streams.io.StoredFileHelper
 import org.schabi.newpipe.util.NavigationHelper
 import org.schabi.newpipe.util.OnClickGesture
 import org.schabi.newpipe.util.ServiceHelper
@@ -66,11 +47,6 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ScrollableT
 
     private val groupAdapter = GroupAdapter<GroupieViewHolder<FeedItemCarouselBinding>>()
     private val subscriptionsSection = Section()
-
-    private val requestExportLauncher =
-        registerForActivityResult(StartActivityForResult(), this::requestExportResult)
-    private val requestImportLauncher =
-        registerForActivityResult(StartActivityForResult(), this::requestImportResult)
 
     @State
     @JvmField
@@ -117,107 +93,6 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ScrollableT
 
         activity.supportActionBar?.setDisplayShowTitleEnabled(true)
         activity.supportActionBar?.setTitle(R.string.tab_subscriptions)
-
-        buildImportExportMenu(menu)
-    }
-
-    private fun buildImportExportMenu(menu: Menu) {
-        // -- Import --
-        val importSubMenu = menu.addSubMenu(R.string.import_from)
-
-        addMenuItemToSubmenu(importSubMenu, R.string.previous_export) { onImportPreviousSelected() }
-            .setIcon(R.drawable.ic_backup)
-
-        for (service in ServiceList.all()) {
-            val subscriptionExtractor = service.subscriptionExtractor ?: continue
-
-            val supportedSources = subscriptionExtractor.supportedSources
-            if (supportedSources.isEmpty()) continue
-
-            addMenuItemToSubmenu(importSubMenu, service.serviceInfo.name) {
-                onImportFromServiceSelected(service.serviceId)
-            }
-                .setIcon(ServiceHelper.getIcon(service.serviceId))
-        }
-
-        // -- Export --
-        val exportSubMenu = menu.addSubMenu(R.string.export_to)
-
-        addMenuItemToSubmenu(exportSubMenu, R.string.file) { onExportSelected() }
-            .setIcon(R.drawable.ic_save)
-    }
-
-    private fun addMenuItemToSubmenu(
-        subMenu: SubMenu,
-        @StringRes title: Int,
-        onClick: Runnable
-    ): MenuItem {
-        return setClickListenerToMenuItem(subMenu.add(title), onClick)
-    }
-
-    private fun addMenuItemToSubmenu(
-        subMenu: SubMenu,
-        title: String,
-        onClick: Runnable
-    ): MenuItem {
-        return setClickListenerToMenuItem(subMenu.add(title), onClick)
-    }
-
-    private fun setClickListenerToMenuItem(
-        menuItem: MenuItem,
-        onClick: Runnable
-    ): MenuItem {
-        menuItem.setOnMenuItemClickListener {
-            onClick.run()
-            true
-        }
-        return menuItem
-    }
-
-    private fun onImportFromServiceSelected(serviceId: Int) {
-        val fragmentManager = fm
-        NavigationHelper.openSubscriptionsImportFragment(fragmentManager, serviceId)
-    }
-
-    private fun onImportPreviousSelected() {
-        NoFileManagerSafeGuard.launchSafe(
-            requestImportLauncher,
-            StoredFileHelper.getPicker(activity, JSON_MIME_TYPE),
-            TAG,
-            requireContext()
-        )
-    }
-
-    private fun onExportSelected() {
-        val date = SimpleDateFormat("yyyyMMddHHmm", Locale.ENGLISH).format(Date())
-        val exportName = "newpipe_subscriptions_$date.json"
-
-        NoFileManagerSafeGuard.launchSafe(
-            requestExportLauncher,
-            StoredFileHelper.getNewPicker(activity, exportName, JSON_MIME_TYPE, null),
-            TAG,
-            requireContext()
-        )
-    }
-
-    private fun requestExportResult(result: ActivityResult) {
-        if (result.data != null && result.resultCode == Activity.RESULT_OK) {
-            activity.startService(
-                Intent(activity, SubscriptionsExportService::class.java)
-                    .putExtra(SubscriptionsExportService.KEY_FILE_PATH, result.data?.data)
-            )
-        }
-    }
-
-    private fun requestImportResult(result: ActivityResult) {
-        if (result.data != null && result.resultCode == Activity.RESULT_OK) {
-            ImportConfirmationDialog.show(
-                this,
-                Intent(activity, SubscriptionsImportService::class.java)
-                    .putExtra(KEY_MODE, PREVIOUS_EXPORT_MODE)
-                    .putExtra(KEY_VALUE, result.data?.data)
-            )
-        }
     }
 
     // ////////////////////////////////////////////////////////////////////////
@@ -370,10 +245,5 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ScrollableT
     override fun hideLoading() {
         super.hideLoading()
         binding.itemsList.animate(true, 200)
-    }
-
-    companion object {
-        val JSON_MIME_TYPE = MimeTypeMap.getSingleton()
-            .getMimeTypeFromExtension("json") ?: "application/octet-stream"
     }
 }

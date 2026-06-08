@@ -3,9 +3,16 @@
     xmlns:tools="http://schemas.android.com/tools"
     tools:context="org.schabi.newpipe.history.HistoryActivity">
 
+    <!--
+        Broom icon shown directly in the toolbar. orderInCategory is lower than
+        action_search (1) so it sits to the LEFT of the search button; search
+        stays as the rightmost toolbar button. Tapping it opens the
+        clear-watch-history confirmation dialog directly (no submenu).
+    -->
     <item
         android:id="@+id/action_history_clear"
-        android:orderInCategory="940"
+        android:icon="@drawable/ic_broom"
+        android:orderInCategory="0"
         android:title="@string/clear_views_history_title"
-        app:showAsAction="never" />
+        app:showAsAction="always" />
 </menu>
