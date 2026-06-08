@@ -8,7 +8,6 @@ import androidx.preference.PreferenceManager;
 
 import org.schabi.newpipe.R;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -32,7 +31,8 @@ public final class TabsManager {
     }
 
     public List<Tab> getTabs() {
-        return applyHistoryTabSetting(getStoredTabs());
+        // YouTube-only build: the main page tabs are a fixed set and no longer user configurable.
+        return getDefaultTabs();
     }
 
     public List<Tab> getStoredTabs() {
@@ -61,17 +61,6 @@ public final class TabsManager {
         return TabsJsonHelper.getDefaultTabs();
     }
 
-    private List<Tab> applyHistoryTabSetting(final List<Tab> tabs) {
-        final List<Tab> tabsWithoutHistory = removeHistoryTabs(tabs);
-        if (!sharedPreferences.getBoolean(showHistoryTabKey, false)) {
-            return tabsWithoutHistory;
-        }
-
-        final List<Tab> tabsWithHistory = new ArrayList<>(tabsWithoutHistory);
-        tabsWithHistory.add(getHistoryTabPosition(tabsWithHistory), Tab.Type.HISTORY.getTab());
-        return tabsWithHistory;
-    }
-
     private static List<Tab> removeHistoryTabs(final List<Tab> tabs) {
         if (tabs == null) {
             return null;
@@ -80,22 +69,6 @@ public final class TabsManager {
         return tabs.stream()
                 .filter(tab -> tab.getTabId() != Tab.HistoryTab.ID)
                 .collect(Collectors.toList());
-    }
-
-    private static int getHistoryTabPosition(final List<Tab> tabs) {
-        for (int i = 0; i < tabs.size(); i++) {
-            if (tabs.get(i).getTabId() == Tab.BookmarksTab.ID) {
-                return i;
-            }
-        }
-
-        for (int i = 0; i < tabs.size(); i++) {
-            if (tabs.get(i).getTabId() == Tab.SubscriptionsTab.ID) {
-                return i + 1;
-            }
-        }
-
-        return tabs.size();
     }
 
     /*//////////////////////////////////////////////////////////////////////////

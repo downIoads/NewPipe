@@ -40,14 +40,6 @@
         app:iconSpaceReserved="false"
         app:useSimpleSummaryProvider="true" />
 
-    <PreferenceScreen
-        android:fragment="org.schabi.newpipe.settings.tabs.ChooseTabsFragment"
-        android:key="@string/main_page_content_key"
-        android:summary="@string/main_page_content_summary"
-        android:title="@string/main_page_content"
-        app:singleLineTitle="false"
-        app:iconSpaceReserved="false" />
-
     <MultiSelectListPreference
         android:key="@string/show_channel_tabs_key"
         android:summary="@string/show_channel_tabs_summary"
@@ -57,14 +49,6 @@
         android:defaultValue="@array/show_channel_tabs_value_list"
         app:iconSpaceReserved="false"
         app:singleLineTitle="false" />
-
-    <PreferenceScreen
-        android:fragment="org.schabi.newpipe.settings.PeertubeInstanceListFragment"
-        android:key="@string/peertube_instance_setup_key"
-        android:summary="@string/peertube_instance_url_summary"
-        android:title="@string/peertube_instance_url_title"
-        app:singleLineTitle="false"
-        app:iconSpaceReserved="false" />
 
     <SwitchPreferenceCompat
         android:defaultValue="false"
