@@ -139,6 +139,16 @@ public abstract class FragmentStatePagerAdapterMenuWorkaround extends PagerAdapt
     @NonNull
     public abstract Fragment getItem(int position);
 
+    /**
+     * @return the {@link Fragment} that is currently the primary (visible) item of the pager, or
+     * {@code null} if none has been set yet. Unlike {@link #getItem(int)} this returns the live,
+     * already-instantiated fragment instance rather than creating a new one.
+     */
+    @Nullable
+    public Fragment getCurrentPrimaryItem() {
+        return mCurrentPrimaryItem;
+    }
+
     @Override
     public void startUpdate(@NonNull final ViewGroup container) {
         if (container.getId() == View.NO_ID) {

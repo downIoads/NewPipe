@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import org.schabi.newpipe.R;
 import org.schabi.newpipe.databinding.PignateFooterBinding;
 import org.schabi.newpipe.fragments.BaseStateFragment;
+import org.schabi.newpipe.fragments.ScrollableTab;
 import org.schabi.newpipe.fragments.list.ListViewContract;
 import org.schabi.newpipe.info_list.ItemViewMode;
 
@@ -42,7 +43,8 @@ import static org.schabi.newpipe.util.ThemeHelper.getItemViewMode;
  * @param <N> {@link Void}
  */
 public abstract class BaseLocalListFragment<I, N> extends BaseStateFragment<I>
-        implements ListViewContract<I, N>, SharedPreferences.OnSharedPreferenceChangeListener {
+        implements ListViewContract<I, N>, SharedPreferences.OnSharedPreferenceChangeListener,
+        ScrollableTab {
 
     /*//////////////////////////////////////////////////////////////////////////
     // Views
@@ -143,6 +145,13 @@ public abstract class BaseLocalListFragment<I, N> extends BaseStateFragment<I>
     @Override
     protected void initListeners() {
         super.initListeners();
+    }
+
+    @Override
+    public void scrollToTop() {
+        if (itemsList != null) {
+            itemsList.scrollToPosition(0);
+        }
     }
 
     /*//////////////////////////////////////////////////////////////////////////

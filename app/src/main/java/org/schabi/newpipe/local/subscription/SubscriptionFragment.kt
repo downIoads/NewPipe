@@ -38,6 +38,7 @@ import org.schabi.newpipe.error.UserAction
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.fragments.BaseStateFragment
+import org.schabi.newpipe.fragments.ScrollableTab
 import org.schabi.newpipe.ktx.animate
 import org.schabi.newpipe.local.subscription.SubscriptionViewModel.SubscriptionState
 import org.schabi.newpipe.local.subscription.item.ChannelItem
@@ -55,7 +56,7 @@ import org.schabi.newpipe.util.ServiceHelper
 import org.schabi.newpipe.util.ThemeHelper.getGridSpanCountChannels
 import org.schabi.newpipe.util.external_communication.ShareUtils
 
-class SubscriptionFragment : BaseStateFragment<SubscriptionState>() {
+class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ScrollableTab {
     private var _binding: FragmentSubscriptionBinding? = null
     private val binding get() = _binding!!
 
@@ -244,6 +245,10 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>() {
         viewModel.stateLiveData.observe(viewLifecycleOwner) { it?.let(this::handleResult) }
 
         setupInitialLayout()
+    }
+
+    override fun scrollToTop() {
+        _binding?.itemsList?.scrollToPosition(0)
     }
 
     private fun setupInitialLayout() {

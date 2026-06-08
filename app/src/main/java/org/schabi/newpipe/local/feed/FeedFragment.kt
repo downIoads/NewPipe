@@ -67,6 +67,7 @@ import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.utils.Utils.isNullOrEmpty
 import org.schabi.newpipe.fragments.BaseStateFragment
+import org.schabi.newpipe.fragments.ScrollableTab
 import org.schabi.newpipe.info_list.ItemViewMode
 import org.schabi.newpipe.info_list.dialog.InfoItemDialog
 import org.schabi.newpipe.ktx.animate
@@ -82,7 +83,7 @@ import org.schabi.newpipe.util.ThemeHelper.getItemViewMode
 import org.schabi.newpipe.util.ThemeHelper.resolveDrawable
 import org.schabi.newpipe.util.ThemeHelper.shouldUseGridLayout
 
-class FeedFragment : BaseStateFragment<FeedState>() {
+class FeedFragment : BaseStateFragment<FeedState>(), ScrollableTab {
     private var _feedBinding: FragmentFeedBinding? = null
     private val feedBinding get() = _feedBinding!!
 
@@ -183,6 +184,10 @@ class FeedFragment : BaseStateFragment<FeedState>() {
         super.initListeners()
         feedBinding.refreshRootView.setOnClickListener { manualReloadContent() }
         feedBinding.swipeRefreshLayout.setOnRefreshListener { manualReloadContent() }
+    }
+
+    override fun scrollToTop() {
+        _feedBinding?.itemsList?.scrollToPosition(0)
     }
 
     // /////////////////////////////////////////////////////////////////////////

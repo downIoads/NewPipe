@@ -339,6 +339,21 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
             Log.d(TAG, "onTabReselected() called with: tab = [" + tab + "]");
         }
         updateTitleForTab(tab.getPosition());
+        scrollSelectedTabToTop();
+    }
+
+    /**
+     * Scroll the currently selected tab's content back to the top. Triggered when the user taps a
+     * tab that is already selected, mirroring the comments-tab behaviour in the video detail page.
+     */
+    private void scrollSelectedTabToTop() {
+        if (pagerAdapter == null) {
+            return;
+        }
+        final Fragment fragment = pagerAdapter.getCurrentPrimaryItem();
+        if (fragment instanceof ScrollableTab) {
+            ((ScrollableTab) fragment).scrollToTop();
+        }
     }
 
     public static final class SelectedTabsPagerAdapter
