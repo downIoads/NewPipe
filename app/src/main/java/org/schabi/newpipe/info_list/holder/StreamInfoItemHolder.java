@@ -43,6 +43,7 @@ import org.schabi.newpipe.util.StreamTypeUtil;
 public class StreamInfoItemHolder extends StreamMiniInfoItemHolder {
     public final TextView itemAdditionalDetails;
     public final TextView itemMembersOnlyDetails;
+    public final TextView itemLivestreamRecordingDetails;
 
     public StreamInfoItemHolder(final InfoItemBuilder infoItemBuilder, final ViewGroup parent) {
         this(infoItemBuilder, R.layout.list_stream_item, parent);
@@ -53,6 +54,7 @@ public class StreamInfoItemHolder extends StreamMiniInfoItemHolder {
         super(infoItemBuilder, layoutId, parent);
         itemAdditionalDetails = itemView.findViewById(R.id.itemAdditionalDetails);
         itemMembersOnlyDetails = itemView.findViewById(R.id.itemMembersOnlyDetails);
+        itemLivestreamRecordingDetails = itemView.findViewById(R.id.itemLivestreamRecordingDetails);
     }
 
     @Override
@@ -68,6 +70,8 @@ public class StreamInfoItemHolder extends StreamMiniInfoItemHolder {
         itemAdditionalDetails.setText(Localization.highlightScheduled(
                 itemBuilder.getContext(), getStreamInfoDetailLine(item)));
         itemMembersOnlyDetails.setVisibility(isMembersOnly(item) ? View.VISIBLE : View.GONE);
+        itemLivestreamRecordingDetails.setVisibility(
+                isLivestreamRecording(item) ? View.VISIBLE : View.GONE);
     }
 
     private String getStreamInfoDetailLine(final StreamInfoItem infoItem) {
@@ -108,6 +112,14 @@ public class StreamInfoItemHolder extends StreamMiniInfoItemHolder {
         return infoItem.getServiceId() == ServiceList.YouTube.getServiceId()
                 && infoItem.getViewCount() < 0
                 && !StreamTypeUtil.isLiveStream(infoItem.getStreamType())
+                && !isLivestreamRecording(infoItem)
                 && infoItem.getContentAvailability() != ContentAvailability.UPCOMING;
+    }
+
+    // Whether this is a past livestream that is now available as a recording. Shown with a
+    // "Livestream Recording" label below the views/date line.
+    private boolean isLivestreamRecording(final StreamInfoItem infoItem) {
+        return infoItem.getStreamType() == StreamType.POST_LIVE_STREAM
+                || infoItem.getStreamType() == StreamType.POST_LIVE_AUDIO_STREAM;
     }
 }

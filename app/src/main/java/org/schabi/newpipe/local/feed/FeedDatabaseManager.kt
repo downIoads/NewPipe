@@ -90,6 +90,21 @@ class FeedDatabaseManager(context: Context) {
     }
 
     /**
+     * Patch a stored stream's duration and stream type if the duration is still unknown. Used by
+     * the feed's background enrichment for past livestreams that are now available as recordings:
+     * the RSS path stored them as a plain video with no duration, so we patch in the real duration
+     * and [StreamType.POST_LIVE_STREAM]. Returns true if a row was updated.
+     */
+    fun setStreamDurationAndTypeIfMissing(
+        serviceId: Int,
+        url: String,
+        duration: Long,
+        streamType: StreamType
+    ): Boolean {
+        return streamTable.setDurationAndTypeIfMissing(serviceId, url, duration, streamType) > 0
+    }
+
+    /**
      * Of [urls], the subset whose stored stream still has an unknown duration. Lets the feed's
      * background enrichment skip the network entirely for channels whose items already have a
      * duration.

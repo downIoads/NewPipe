@@ -60,6 +60,8 @@ data class StreamItem(
                 viewBinding.itemAdditionalDetails.text =
                     getStreamInfoDetailLine(viewBinding.itemAdditionalDetails.context)
                 viewBinding.itemMembersOnlyDetails.visibility = if (isMembersOnly()) View.VISIBLE else View.GONE
+                viewBinding.itemLivestreamRecordingDetails.visibility =
+                    if (isLivestreamRecording()) View.VISIBLE else View.GONE
             }
             return
         }
@@ -112,6 +114,8 @@ data class StreamItem(
                     getStreamInfoDetailLine(viewBinding.itemAdditionalDetails.context)
                 )
             viewBinding.itemMembersOnlyDetails.visibility = if (isMembersOnly()) View.VISIBLE else View.GONE
+            viewBinding.itemLivestreamRecordingDetails.visibility =
+                if (isLivestreamRecording()) View.VISIBLE else View.GONE
         }
 
         execBindEnd?.accept(viewBinding)
@@ -162,8 +166,17 @@ data class StreamItem(
         return stream.serviceId == ServiceList.YouTube.serviceId &&
             (viewCount == null || viewCount < 0) &&
             !StreamTypeUtil.isLiveStream(stream.streamType) &&
+            !isLivestreamRecording() &&
             stream.contentAvailability != UPCOMING
     }
+
+    /**
+     * Whether this is a past livestream that is now available as a recording. The fast RSS feed
+     * path can't tell these apart from regular uploads, so the feed's background enrichment marks
+     * them as [POST_LIVE_STREAM]/[POST_LIVE_AUDIO_STREAM] (see FeedLoadManager). We surface that
+     * with a "Livestream Recording" label below the views/date line.
+     */
+    private fun isLivestreamRecording(): Boolean = stream.streamType == POST_LIVE_STREAM || stream.streamType == POST_LIVE_AUDIO_STREAM
 
     override fun getSpanSize(spanCount: Int, position: Int): Int {
         return if (itemVersion == ItemVersion.GRID) 1 else spanCount

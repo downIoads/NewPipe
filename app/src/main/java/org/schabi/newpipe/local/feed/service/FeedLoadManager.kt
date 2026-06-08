@@ -24,10 +24,12 @@ import org.schabi.newpipe.database.subscription.NotificationMode
 import org.schabi.newpipe.database.subscription.SubscriptionEntity
 import org.schabi.newpipe.extractor.Info
 import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.channel.ChannelInfo
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.feed.FeedInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.ktx.getStringSafe
 import org.schabi.newpipe.local.feed.FeedDatabaseManager
 import org.schabi.newpipe.local.subscription.SubscriptionManager
@@ -335,8 +337,17 @@ class FeedLoadManager(private val context: Context) {
     /**
      * Enrich a single channel's stored, duration-less streams. First checks the DB for which of
      * this channel's current items are missing a duration; only if some are does it fetch the
-     * Videos tab once (the items are recent uploads, so they are on its first page) and patch each
-     * matching duration in. Swallows all errors so it never fails the already-completed refresh.
+     * channel (the items are recent uploads, so they are on the first page of their tab) and patch
+     * each matching duration in. Swallows all errors so it never fails the already-completed
+     * refresh.
+     *
+     * Two passes, both off the same reused channel fetch:
+     *  1. Videos tab — regular uploads. This is the common case and the only request most channels
+     *     ever need.
+     *  2. Livestreams tab — only consulted for items still missing after pass 1. Past livestreams
+     *     that are now available as recordings live here, not under Videos. For those we also
+     *     rewrite the stream type to [StreamType.POST_LIVE_STREAM] (the RSS path stored them as a
+     *     plain video) so the feed shows the length overlay AND the "Livestream Recording" label.
      */
     private fun enrichChannelDurations(
         info: FeedUpdateInfo,
@@ -347,30 +358,53 @@ class FeedLoadManager(private val context: Context) {
             val candidateUrls = info.streams.mapNotNull { it.url }.distinct()
             val missingUrls = feedDatabaseManager
                 .urlsWithMissingDuration(info.serviceId, candidateUrls)
-                .toHashSet()
             if (missingUrls.isEmpty()) {
                 return
             }
 
             channelsFetched.incrementAndGet()
-            val durations = fetchVideoDurations(info.serviceId, info.url)
-            if (durations.isEmpty()) {
-                return
-            }
+            val channelInfo = getChannelInfo(info.serviceId, info.url, true).blockingGet()
 
-            var localPatched = 0
+            // Pass 1: regular uploads from the Videos tab.
+            val videoDurations = fetchTabDurations(info.serviceId, channelInfo, ChannelTabs.VIDEOS)
+            var videosPatched = 0
+            val stillMissing = ArrayList<String>()
             for (url in missingUrls) {
-                val duration = durations[videoKey(url)] ?: continue
-                if (duration > 0 &&
-                    feedDatabaseManager.setStreamDurationIfMissing(info.serviceId, url, duration)
-                ) {
-                    localPatched++
+                val duration = videoDurations[videoKey(url)]
+                if (duration != null && duration > 0) {
+                    if (feedDatabaseManager.setStreamDurationIfMissing(info.serviceId, url, duration)) {
+                        videosPatched++
+                    }
+                } else {
+                    stillMissing.add(url)
                 }
             }
-            patched.addAndGet(localPatched)
+
+            // Pass 2: only for leftovers, look in the Livestreams tab for ended-livestream
+            // recordings, and mark them as such.
+            var recordingsPatched = 0
+            if (stillMissing.isNotEmpty()) {
+                val liveDurations =
+                    fetchTabDurations(info.serviceId, channelInfo, ChannelTabs.LIVESTREAMS)
+                for (url in stillMissing) {
+                    val duration = liveDurations[videoKey(url)] ?: continue
+                    if (duration > 0 &&
+                        feedDatabaseManager.setStreamDurationAndTypeIfMissing(
+                            info.serviceId,
+                            url,
+                            duration,
+                            StreamType.POST_LIVE_STREAM
+                        )
+                    ) {
+                        recordingsPatched++
+                    }
+                }
+            }
+
+            patched.addAndGet(videosPatched + recordingsPatched)
             feedDbg(
                 "DURATION-ENRICH channel name=\"${info.name}\" url=${info.url} " +
-                    "missing=${missingUrls.size} patched=$localPatched"
+                    "missing=${missingUrls.size} videos=$videosPatched recordings=$recordingsPatched"
             )
         } catch (e: Throwable) {
             feedDbg("DURATION-ENRICH FAILED name=\"${info.name}\" url=${info.url}", e)
@@ -378,16 +412,21 @@ class FeedLoadManager(private val context: Context) {
     }
 
     /**
-     * Fetch a channel's Videos-tab items (which carry real durations) and return a
-     * [videoKey] -> duration map. ~1 reused browse request per channel.
+     * Fetch one of a channel's tabs (identified by a [ChannelTabs] content filter) and return a
+     * [videoKey] -> duration map for its items that carry a real duration. Reuses the already
+     * fetched [channelInfo], so this is ~1 browse request per tab. Returns an empty map if the
+     * channel has no such tab.
      */
-    private fun fetchVideoDurations(serviceId: Int, channelUrl: String): Map<String, Long> {
-        val channelInfo = getChannelInfo(serviceId, channelUrl, true).blockingGet()
-        val videosTab = channelInfo.tabs.firstOrNull {
-            it.contentFilters.contains(ChannelTabs.VIDEOS)
+    private fun fetchTabDurations(
+        serviceId: Int,
+        channelInfo: ChannelInfo,
+        contentFilter: String
+    ): Map<String, Long> {
+        val tab = channelInfo.tabs.firstOrNull {
+            it.contentFilters.contains(contentFilter)
         } ?: return emptyMap()
 
-        return getChannelTab(serviceId, videosTab, true)
+        return getChannelTab(serviceId, tab, true)
             .blockingGet()
             .relatedItems
             .filterIsInstance<StreamInfoItem>()

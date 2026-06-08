@@ -47,6 +47,28 @@ abstract class StreamDAO : BasicDAO<StreamEntity> {
     abstract fun setDurationIfMissing(serviceId: Int, url: String, duration: Long): Int
 
     /**
+     * Like [setDurationIfMissing], but also rewrites the stream type. Used by the feed's background
+     * enrichment for past livestreams that are now available as recordings: the fast RSS path
+     * stores every entry as a plain [StreamType.VIDEO_STREAM] with no duration, so once we discover
+     * (via the channel's Livestreams tab) that an entry is actually an ended livestream, we patch in
+     * both its duration and [StreamType.POST_LIVE_STREAM] so the feed shows the length overlay and
+     * the "Livestream Recording" label. The `duration < 0` guard keeps this a no-op for entries
+     * that already carry a real duration, so it never clobbers better data.
+     *
+     * @return the number of rows updated (0 or 1).
+     */
+    @Query(
+        "UPDATE streams SET duration = :duration, stream_type = :streamType " +
+            "WHERE url = :url AND service_id = :serviceId AND duration < 0"
+    )
+    abstract fun setDurationAndTypeIfMissing(
+        serviceId: Int,
+        url: String,
+        duration: Long,
+        streamType: StreamType
+    ): Int
+
+    /**
      * Of the given URLs, return those whose stored stream has an unknown duration (`< 0`). Used by
      * the feed's background duration enrichment to decide, per channel, whether a (costly) Videos-
      * tab fetch is even needed: once durations are filled in, this returns empty and no fetch

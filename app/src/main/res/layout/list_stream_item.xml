@@ -90,11 +90,28 @@
         android:textAppearance="?android:attr/textAppearanceSmall"
         android:textSize="@dimen/video_item_search_upload_date_text_size"
         android:visibility="gone"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@+id/itemLivestreamRecordingDetails"
         app:layout_constraintEnd_toEndOf="@+id/itemVideoTitleView"
         app:layout_constraintStart_toStartOf="@+id/itemVideoTitleView"
         app:layout_constraintTop_toBottomOf="@+id/itemAdditionalDetails"
         tools:text="MEMBERS ONLY"
+        tools:visibility="visible" />
+
+    <org.schabi.newpipe.views.NewPipeTextView
+        android:id="@+id/itemLivestreamRecordingDetails"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:lines="1"
+        android:text="@string/livestream_recording"
+        android:textAppearance="?android:attr/textAppearanceSmall"
+        android:textSize="@dimen/video_item_search_upload_date_text_size"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="@+id/itemVideoTitleView"
+        app:layout_constraintStart_toStartOf="@+id/itemVideoTitleView"
+        app:layout_constraintTop_toBottomOf="@+id/itemMembersOnlyDetails"
+        tools:text="Livestream Recording"
         tools:visibility="visible" />
 
     <org.schabi.newpipe.views.AnimatedProgressBar

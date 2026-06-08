@@ -177,6 +177,7 @@
     <string name="restricted_video_no_stream">Age Restricted Video Detected: Not supported by NewPipe</string>
     <string name="duration_live">Live</string>
     <string name="members_only">MEMBERS ONLY</string>
+    <string name="livestream_recording">Livestream Recording</string>
     <string name="downloads">Downloads</string>
     <string name="downloads_title">Downloads</string>
     <string name="shuffle_all">Shuffle All</string>
