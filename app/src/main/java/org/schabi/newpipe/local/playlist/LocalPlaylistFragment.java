@@ -1,11 +1,6 @@
 package org.schabi.newpipe.local.playlist;
 
-import static org.schabi.newpipe.error.ErrorUtil.showUiErrorSnackbar;
 import static org.schabi.newpipe.ktx.ViewUtils.animate;
-import static org.schabi.newpipe.local.playlist.ExportPlaylistKt.export;
-import static org.schabi.newpipe.local.playlist.PlayListShareMode.JUST_URLS;
-import static org.schabi.newpipe.local.playlist.PlayListShareMode.WITH_TITLES;
-import static org.schabi.newpipe.local.playlist.PlayListShareMode.YOUTUBE_TEMP_PLAYLIST;
 import static org.schabi.newpipe.util.ThemeHelper.shouldUseGridLayout;
 
 
@@ -62,7 +57,6 @@ import org.schabi.newpipe.util.OnClickGesture;
 import org.schabi.newpipe.util.PlayButtonHelper;
 import org.schabi.newpipe.util.debounce.DebounceSavable;
 import org.schabi.newpipe.util.debounce.DebounceSaver;
-import org.schabi.newpipe.util.external_communication.ShareUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -72,7 +66,6 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
-import io.reactivex.rxjava3.core.Single;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
@@ -368,9 +361,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
 
     @Override
     public boolean onOptionsItemSelected(final MenuItem item) {
-        if (item.getItemId() == R.id.menu_item_share_playlist) {
-            createShareConfirmationDialog();
-        } else if (item.getItemId() == R.id.menu_item_rename_playlist) {
+        if (item.getItemId() == R.id.menu_item_rename_playlist) {
             createRenameDialog();
         } else if (item.getItemId() == R.id.menu_item_play_on_popup) {
             NavigationHelper.playOnPopupPlayer(requireContext(), getPlayQueue(), false);
@@ -396,44 +387,6 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
             return super.onOptionsItemSelected(item);
         }
         return true;
-    }
-
-    /**
-     * Shares the playlist in one of 3 ways, depending on the value of {@code shareMode}:
-     * <ul>
-     *     <li>{@code JUST_URLS}: shares the URLs only.</li>
-     *     <li>{@code WITH_TITLES}: each entry in the list is accompanied by its title.</li>
-     *     <li>{@code YOUTUBE_TEMP_PLAYLIST}: shares as a YouTube temporary playlist.</li>
-     * </ul>
-     *
-     * @param shareMode The way the playlist should be shared.
-     */
-    private void sharePlaylist(final PlayListShareMode shareMode) {
-        final Context context = requireContext();
-
-        disposables.add(playlistManager.getPlaylistStreams(playlistId)
-            .flatMapSingle(playlist -> Single.just(export(
-
-                shareMode,
-                playlist,
-                context
-            )))
-            .observeOn(AndroidSchedulers.mainThread())
-            .subscribe(
-                urlsText -> {
-
-                    final String content = shareMode == WITH_TITLES
-                        ? context.getString(R.string.share_playlist_content_details,
-                                            name,
-                                            urlsText
-                                           )
-                        : urlsText;
-
-                    ShareUtils.shareText(context, name, content);
-                },
-                throwable -> showUiErrorSnackbar(this, "Sharing playlist", throwable)
-            )
-        );
     }
 
     public void removeWatchedStreams(final boolean removePartiallyWatched) {
@@ -919,27 +872,6 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
             NavigationHelper.enqueueOnPlayer(activity, getShufflePlayQueue(), PlayerType.MAIN);
             return true;
         });
-    }
-
-    /**
-     * Creates a dialog to confirm whether the user wants to share the playlist
-     * with the playlist details or just the list of stream URLs.
-     * After the user has made a choice, the playlist is shared.
-     */
-    private void createShareConfirmationDialog() {
-        new AlertDialog.Builder(requireContext())
-                .setTitle(R.string.share_playlist)
-                .setCancelable(true)
-                .setPositiveButton(R.string.share_playlist_with_titles, (dialog, which) ->
-                    sharePlaylist(WITH_TITLES)
-                )
-                .setNeutralButton(R.string.share_playlist_as_youtube_temporary_playlist,
-                    (dialog, which) -> sharePlaylist(YOUTUBE_TEMP_PLAYLIST)
-                )
-                .setNegativeButton(R.string.share_playlist_with_list, (dialog, which) ->
-                    sharePlaylist(JUST_URLS)
-                )
-                .show();
     }
 
     public void setTabsPagerAdapter(
