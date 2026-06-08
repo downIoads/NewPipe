@@ -229,11 +229,13 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     public void onResume() {
         super.onResume();
         startProgressRefresh();
+        showCenteredTitle(getString(R.string.playlist));
     }
 
     @Override
     public void onPause() {
         stopProgressRefresh();
+        hideCenteredTitle();
         super.onPause();
     }
 
@@ -574,7 +576,8 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
 
     @Override
     public void setTitle(final String title) {
-        super.setTitle(title);
+        // Keep the toolbar title generic and centered; the actual name is shown in the header.
+        showCenteredTitle(getString(R.string.playlist));
         if (headerBinding != null) {
             headerBinding.playlistTitleView.setText(title);
         }

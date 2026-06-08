@@ -139,7 +139,8 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
 
     @Override
     public void setTitle(final String title) {
-        super.setTitle(title);
+        // Keep the toolbar title generic and centered; the actual name is shown in the header.
+        showCenteredTitle(getString(R.string.playlist));
 
         if (headerBinding != null) {
             headerBinding.playlistTitleView.setText(title);
@@ -254,8 +255,15 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     ///////////////////////////////////////////////////////////////////////////
 
     @Override
+    public void onResume() {
+        super.onResume();
+        showCenteredTitle(getString(R.string.playlist));
+    }
+
+    @Override
     public void onPause() {
         super.onPause();
+        hideCenteredTitle();
         itemsListState = itemsList.getLayoutManager().onSaveInstanceState();
 
         // Save on exit

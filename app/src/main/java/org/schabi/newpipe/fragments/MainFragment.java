@@ -20,7 +20,6 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.RelativeLayout;
-import android.widget.TextView;
 
 import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
@@ -228,22 +227,7 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
     }
 
     private void updateTitleForTab(final int tabPosition) {
-        final String title = tabsList.get(tabPosition).getTabName(requireContext());
-        // Show the title in a centered toolbar TextView instead of the default
-        // left-aligned ActionBar title.
-        final TextView toolbarTitle = activity.findViewById(R.id.toolbar_title);
-        if (toolbarTitle != null) {
-            toolbarTitle.setText(title);
-            toolbarTitle.setVisibility(View.VISIBLE);
-        }
-        setTitle("");
-    }
-
-    private void hideCenteredTitle() {
-        final TextView toolbarTitle = activity.findViewById(R.id.toolbar_title);
-        if (toolbarTitle != null) {
-            toolbarTitle.setVisibility(View.GONE);
-        }
+        showCenteredTitle(tabsList.get(tabPosition).getTabName(requireContext()));
     }
 
     public void commitPlaylistTabs() {

@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -118,6 +119,38 @@ public abstract class BaseFragment extends Fragment {
         if (!useAsFrontPage && activity != null && activity.getSupportActionBar() != null) {
             activity.getSupportActionBar().setDisplayShowTitleEnabled(true);
             activity.getSupportActionBar().setTitle(title);
+        }
+    }
+
+    /**
+     * Show the given text in the centered toolbar title (see {@code R.id.toolbar_title}) instead
+     * of the default left-aligned {@link androidx.appcompat.app.ActionBar} title. Fragments that
+     * use this must call {@link #hideCenteredTitle()} when they are no longer visible (e.g. in
+     * {@code onPause()}), so other screens keep their normal left-aligned title.
+     *
+     * @param title the title to display, centered
+     */
+    protected void showCenteredTitle(final String title) {
+        if (activity == null) {
+            return;
+        }
+        final TextView toolbarTitle = activity.findViewById(R.id.toolbar_title);
+        if (toolbarTitle != null) {
+            toolbarTitle.setText(title);
+            toolbarTitle.setVisibility(View.VISIBLE);
+        }
+        if (activity.getSupportActionBar() != null) {
+            activity.getSupportActionBar().setTitle("");
+        }
+    }
+
+    protected void hideCenteredTitle() {
+        if (activity == null) {
+            return;
+        }
+        final TextView toolbarTitle = activity.findViewById(R.id.toolbar_title);
+        if (toolbarTitle != null) {
+            toolbarTitle.setVisibility(View.GONE);
         }
     }
 
