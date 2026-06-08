@@ -4,7 +4,6 @@ import static android.text.TextUtils.isEmpty;
 import static org.schabi.newpipe.extractor.StreamingService.ServiceInfo.MediaCapability.COMMENTS;
 import static org.schabi.newpipe.extractor.stream.StreamExtractor.NO_AGE_LIMIT;
 import static org.schabi.newpipe.ktx.ViewUtils.animate;
-import static org.schabi.newpipe.ktx.ViewUtils.animateRotation;
 import static org.schabi.newpipe.player.helper.PlayerHelper.globalScreenOrientationLocked;
 import static org.schabi.newpipe.player.helper.PlayerHelper.isClearingQueueConfirmationRequired;
 import static org.schabi.newpipe.util.DependentPreferenceHelper.getResumePlaybackEnabled;
@@ -508,7 +507,8 @@ public final class VideoDetailFragment
     //////////////////////////////////////////////////////////////////////////*/
 
     private void setOnClickListeners() {
-        binding.detailTitleRootLayout.setOnClickListener(v -> toggleTitle());
+        binding.detailTitleRootLayout.setOnClickListener(v -> ShareUtils.copyToClipboard(
+                requireContext(), binding.detailVideoTitleView.getText().toString()));
         binding.detailUploaderRootLayout.setOnClickListener(makeOnClickListener(info -> {
             if (isEmpty(info.getSubChannelUrl())) {
                 if (!isEmpty(info.getUploaderUrl())) {
@@ -651,25 +651,6 @@ public final class VideoDetailFragment
         } catch (final Exception e) {
             ErrorUtil.showUiErrorSnackbar(this, "Opening channel fragment", e);
         }
-    }
-
-    private void toggleTitle() {
-        // The title is expanded (full title) by default. Tapping it collapses it to one line,
-        // tapping again expands it back. The secondary control panel is always shown and is no
-        // longer affected by this toggle.
-        if (binding.detailVideoTitleView.getMaxLines() == 1) {
-            // expand
-            binding.detailVideoTitleView.setMaxLines(10);
-            animateRotation(binding.detailToggleSecondaryControlsView,
-                    VideoPlayerUi.DEFAULT_CONTROLS_DURATION, 180);
-        } else {
-            // collapse
-            binding.detailVideoTitleView.setMaxLines(1);
-            animateRotation(binding.detailToggleSecondaryControlsView,
-                    VideoPlayerUi.DEFAULT_CONTROLS_DURATION, 0);
-        }
-        // view pager height has changed, update the tab layout
-        updateTabLayoutVisibility();
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -1906,12 +1887,8 @@ public final class VideoDetailFragment
         binding.positionView.setVisibility(View.GONE);
 
         binding.detailVideoTitleView.setText(title);
-        // Title is expanded (full title) by default; tapping it toggles the collapsed state.
-        binding.detailVideoTitleView.setMaxLines(10);
         animate(binding.detailVideoTitleView, true, 0);
 
-        binding.detailToggleSecondaryControlsView.setRotation(180);
-        binding.detailToggleSecondaryControlsView.setVisibility(View.VISIBLE);
         binding.detailTitleRootLayout.setClickable(true);
         binding.detailSecondaryControlPanel.setVisibility(View.VISIBLE);
 
@@ -2017,9 +1994,6 @@ public final class VideoDetailFragment
         }
 
         binding.detailTitleRootLayout.setClickable(true);
-        binding.detailVideoTitleView.setMaxLines(10);
-        binding.detailToggleSecondaryControlsView.setRotation(180);
-        binding.detailToggleSecondaryControlsView.setVisibility(View.VISIBLE);
         binding.detailSecondaryControlPanel.setVisibility(View.VISIBLE);
 
         checkUpdateProgressInfo(info);
