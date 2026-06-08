@@ -19,6 +19,9 @@ import org.schabi.newpipe.util.DEFAULT_THROTTLE_TIMEOUT
 import org.schabi.newpipe.util.ThemeHelper.getItemViewMode
 
 class SubscriptionViewModel(application: Application) : AndroidViewModel(application) {
+    // DEBUG perf trace: time from ViewModel creation (≈ fragment (re)creation) to first emission.
+    private val createdAt = android.os.SystemClock.elapsedRealtime()
+
     private var feedDatabaseManager: FeedDatabaseManager = FeedDatabaseManager(application)
     private var subscriptionManager = SubscriptionManager(application)
 
@@ -54,7 +57,19 @@ class SubscriptionViewModel(application: Application) : AndroidViewModel(applica
 
     private var stateItemsDisposable = subscriptionManager.subscriptions()
         .throttleLatest(DEFAULT_THROTTLE_TIMEOUT, TimeUnit.MILLISECONDS)
-        .map { it.map { entity -> ChannelItem(entity.toChannelInfoItem(), entity.uid, ChannelItem.ItemVersion.MINI) } }
+        .map {
+            val mapStart = android.os.SystemClock.elapsedRealtime()
+            val items = it.map { entity ->
+                ChannelItem(entity.toChannelInfoItem(), entity.uid, ChannelItem.ItemVersion.MINI)
+            }
+            android.util.Log.d(
+                "SubsPerfTrace",
+                "dbEmission count=${it.size} sinceCreateMs=" +
+                    "${android.os.SystemClock.elapsedRealtime() - createdAt} mapMs=" +
+                    "${android.os.SystemClock.elapsedRealtime() - mapStart}"
+            )
+            items
+        }
         .subscribeOn(Schedulers.io())
         .subscribe(
             { mutableStateLiveData.postValue(SubscriptionState.LoadedState(it)) },

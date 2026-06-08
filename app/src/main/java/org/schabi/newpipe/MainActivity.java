@@ -119,6 +119,8 @@ public class MainActivity extends AppCompatActivity {
     // DEBUG-only receiver used by scripts/trace_feed_refresh.py to trigger a "What's new" feed
     // refresh from adb and watch the per-subscription FeedDebug trace in real time.
     private BroadcastReceiver debugFeedRefreshReceiver;
+    // DEBUG-only receiver to switch main-page tabs from adb, for profiling tab-switch performance.
+    private BroadcastReceiver debugSwitchTabReceiver;
 
     // Keeps the launch/splash screen visible until the first feed thumbnails have been
     // prefetched into Picasso's memory cache, so the feed appears with thumbnails already
@@ -199,6 +201,7 @@ public class MainActivity extends AppCompatActivity {
         registerDebugPlayerOrientationReceiver();
         registerDebugBottomSheetReceiver();
         registerDebugFeedRefreshReceiver();
+        registerDebugSwitchTabReceiver();
     }
 
     /**
@@ -351,6 +354,38 @@ public class MainActivity extends AppCompatActivity {
         };
         final IntentFilter filter = new IntentFilter("org.schabi.newpipe.debug.REFRESH_FEED");
         ContextCompat.registerReceiver(this, debugFeedRefreshReceiver, filter,
+                ContextCompat.RECEIVER_EXPORTED);
+    }
+
+    /**
+     * DEBUG-only receiver to switch the main page's tabs from adb, so tab-switching performance
+     * can be profiled deterministically without touching the screen:
+     * <pre>
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.SWITCH_TAB \
+     *       --ei index &lt;tab-index&gt; -p org.schabi.newpipe.debug
+     * </pre>
+     * Each switch logs {@code TabSwitchTrace} lines (see {@code adb logcat -s TabSwitchTrace})
+     * reporting the forced instant switch and the main-thread stall until the next frame is drawn.
+     */
+    private void registerDebugSwitchTabReceiver() {
+        if (!DEBUG) {
+            return;
+        }
+        debugSwitchTabReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(final Context context, final Intent intent) {
+                final int index = intent.getIntExtra("index", -1);
+                final Fragment fragment = getSupportFragmentManager()
+                        .findFragmentById(R.id.fragment_holder);
+                if (fragment instanceof MainFragment) {
+                    ((MainFragment) fragment).debugSwitchToTab(index);
+                } else {
+                    Log.d("TabSwitchTrace", "SWITCH_TAB ignored: main fragment not in foreground");
+                }
+            }
+        };
+        final IntentFilter filter = new IntentFilter("org.schabi.newpipe.debug.SWITCH_TAB");
+        ContextCompat.registerReceiver(this, debugSwitchTabReceiver, filter,
                 ContextCompat.RECEIVER_EXPORTED);
     }
 
@@ -526,6 +561,10 @@ public class MainActivity extends AppCompatActivity {
         if (debugFeedRefreshReceiver != null) {
             unregisterReceiver(debugFeedRefreshReceiver);
             debugFeedRefreshReceiver = null;
+        }
+        if (debugSwitchTabReceiver != null) {
+            unregisterReceiver(debugSwitchTabReceiver);
+            debugSwitchTabReceiver = null;
         }
     }
 

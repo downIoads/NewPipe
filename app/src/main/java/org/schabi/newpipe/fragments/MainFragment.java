@@ -209,6 +209,14 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
         binding.pager.setAdapter(null);
         binding.pager.setAdapter(pagerAdapter);
 
+        // Keep every tab fragment resident instead of the default (1 adjacent page on each side).
+        // Otherwise switching to a non-adjacent tab destroys and recreates the fragment, forcing a
+        // full reload (empty list -> DB query -> fade-in) that the user sees as a "loading" flash —
+        // e.g. on the Subscriptions tab with 70+ channels. With all tabs alive, switching back is
+        // instant and re-uses the already-loaded data. The tabs are lightweight list fragments, so
+        // the extra memory is negligible.
+        binding.pager.setOffscreenPageLimit(Math.max(1, tabsList.size() - 1));
+
         updateTabsIconAndDescription();
         updateTitleForTab(binding.pager.getCurrentItem());
 
@@ -273,7 +281,53 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
         if (DEBUG) {
             Log.d(TAG, "onTabSelected() called with: selectedTab = [" + selectedTab + "]");
         }
+        traceTabSwitch(selectedTab.getPosition());
         updateTitleForTab(selectedTab.getPosition());
+    }
+
+    /**
+     * Performance trace for tab switching. Logs how long the main thread is blocked between the
+     * tab being selected and the next frame actually being drawn, which is the visible "lag" the
+     * user perceives when switching tabs. View with {@code adb logcat -s TabSwitchTrace}.
+     *
+     * @param position the index of the newly selected tab
+     */
+    private void traceTabSwitch(final int position) {
+        if (!DEBUG || binding == null) {
+            return;
+        }
+        final long selectedAt = android.os.SystemClock.elapsedRealtime();
+        Log.d("TabSwitchTrace", "onTabSelected position=" + position);
+        // Posted on the view: runs after this frame's layout/draw work for the switch completes,
+        // so the delta approximates the main-thread stall the user sees as jank.
+        binding.pager.post(() -> Log.d("TabSwitchTrace", "frameAfterSwitch position=" + position
+                + " mainThreadStallMs=" + (android.os.SystemClock.elapsedRealtime() - selectedAt)));
+    }
+
+    /**
+     * DEBUG-only entry point to switch tabs programmatically from adb, used to profile and verify
+     * tab-switching performance without touching the screen. Driven by the
+     * {@code org.schabi.newpipe.debug.SWITCH_TAB} broadcast in {@code MainActivity}.
+     *
+     * @param index the index of the tab to switch to
+     */
+    public void debugSwitchToTab(final int index) {
+        if (binding == null) {
+            return;
+        }
+        final int count = pagerAdapter == null ? 0 : pagerAdapter.getCount();
+        if (index < 0 || index >= count) {
+            Log.d("TabSwitchTrace", "debugSwitchToTab ignored: index=" + index + " count=" + count);
+            return;
+        }
+        Log.d("TabSwitchTrace", "debugSwitchToTab requested index=" + index
+                + " from=" + binding.pager.getCurrentItem());
+        final TabLayout.Tab tab = binding.mainTabLayout.getTabAt(index);
+        if (tab != null) {
+            tab.select();
+        } else {
+            binding.pager.setCurrentItem(index);
+        }
     }
 
     @Override

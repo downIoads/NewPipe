@@ -223,8 +223,14 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>() {
     // Fragment Views
     // ////////////////////////////////////////////////////////////////////////
 
+    // DEBUG perf trace: marks when the fragment's view is (re)created, to measure the visible
+    // "loading" gap until subscriptions are rendered after a tab switch.
+    private var initViewsAt = 0L
+
     override fun initViews(rootView: View, savedInstanceState: Bundle?) {
         super.initViews(rootView, savedInstanceState)
+        initViewsAt = android.os.SystemClock.elapsedRealtime()
+        android.util.Log.d("SubsPerfTrace", "initViews (fragment view (re)created)")
         _binding = FragmentSubscriptionBinding.bind(rootView)
 
         groupAdapter.spanCount = if (SubscriptionViewModel.shouldUseGridForSubscription(requireContext())) getGridSpanCountChannels(context) else 1
@@ -308,6 +314,12 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>() {
 
         when (result) {
             is SubscriptionState.LoadedState -> {
+                android.util.Log.d(
+                    "SubsPerfTrace",
+                    "handleResult LoadedState count=${result.subscriptions.size} " +
+                        "sinceInitViewsMs=" +
+                        "${android.os.SystemClock.elapsedRealtime() - initViewsAt}"
+                )
                 result.subscriptions.forEach {
                     if (it is ChannelItem) {
                         it.gesturesListener = listenerChannelItem
@@ -342,6 +354,11 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>() {
 
     override fun showLoading() {
         super.showLoading()
+        android.util.Log.d(
+            "SubsPerfTrace",
+            "showLoading (spinner shown) sinceInitViewsMs=" +
+                "${android.os.SystemClock.elapsedRealtime() - initViewsAt}"
+        )
         binding.itemsList.animate(false, 100)
     }
 
