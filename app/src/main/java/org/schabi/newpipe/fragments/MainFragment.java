@@ -104,6 +104,8 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
     protected void initViews(final View rootView, final Bundle savedInstanceState) {
         super.initViews(rootView, savedInstanceState);
 
+        // ytLog: uncomment (with the other SearchBackTrace logs) to time main-page view rebuild.
+        // Log.i("SearchBackTrace", "MainFragment.initViews start t=" + System.nanoTime());
         binding = FragmentMainBinding.bind(rootView);
 
         binding.mainTabLayout.setupWithViewPager(binding.pager);
@@ -111,6 +113,8 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
 
         setupTabs();
         updateTabLayoutPosition();
+        // ytLog: uncomment (with the other SearchBackTrace logs) to time main-page view rebuild.
+        // Log.i("SearchBackTrace", "MainFragment.initViews end t=" + System.nanoTime());
     }
 
     @Override
@@ -141,6 +145,27 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
         // Other fragments use the default left-aligned ActionBar title, so hide the
         // centered title when leaving the main page.
         hideCenteredTitle();
+    }
+
+    @Override
+    public void onHiddenChanged(final boolean hidden) {
+        super.onHiddenChanged(hidden);
+        // The search page is shown on top of us via hide()/show() (see
+        // NavigationHelper.openSearchFragment) rather than replace(), so our view is kept alive
+        // and no onCreateView/onResume runs when we reappear. That means the toolbar — which the
+        // search page repurposes (search box, "up" arrow) — is not restored automatically. Do it
+        // here so closing search instantly brings back the main page's settings icon and tab title.
+        if (hidden) {
+            hideCenteredTitle();
+        } else if (binding != null) {
+            if (activity != null) {
+                // Rebuilds the menu and, via MainActivity.onCreateOptionsMenu ->
+                // updateToolbarNavigation(), resets the nav icon to the settings shortcut and
+                // hides the search box.
+                activity.invalidateOptionsMenu();
+            }
+            updateTitleForTab(binding.pager.getCurrentItem());
+        }
     }
 
     @Override
@@ -198,6 +223,8 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
     //////////////////////////////////////////////////////////////////////////*/
 
     private void setupTabs() {
+        // ytLog: uncomment (with the other SearchBackTrace logs) to time main-page view rebuild.
+        // Log.i("SearchBackTrace", "MainFragment.setupTabs start t=" + System.nanoTime());
         tabsList.clear();
         tabsList.addAll(tabsManager.getTabs());
 
@@ -221,6 +248,8 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
         updateTitleForTab(binding.pager.getCurrentItem());
 
         hasTabsChanged = false;
+        // ytLog: uncomment (with the other SearchBackTrace logs) to time main-page view rebuild.
+        // Log.i("SearchBackTrace", "MainFragment.setupTabs end t=" + System.nanoTime());
     }
 
     private void updateTabsIconAndDescription() {

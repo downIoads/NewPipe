@@ -263,6 +263,8 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
     @Override
     public void onPause() {
         super.onPause();
+        // ytLog: uncomment (with the other SearchBackTrace logs) to time search-close lag.
+        // Log.i("SearchBackTrace", "SearchFragment.onPause start t=" + System.nanoTime());
 
         wasSearchFocused = searchEditText.hasFocus();
 
@@ -274,6 +276,8 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         }
         disposables.clear();
         hideKeyboardSearch();
+        // ytLog: uncomment (with the other SearchBackTrace logs) to time search-close lag.
+        // Log.i("SearchBackTrace", "SearchFragment.onPause end t=" + System.nanoTime());
     }
 
     @Override
@@ -323,10 +327,14 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         if (DEBUG) {
             Log.d(TAG, "onDestroyView() called");
         }
+        // ytLog: uncomment (with the other SearchBackTrace logs) to time search-close lag.
+        // Log.i("SearchBackTrace", "SearchFragment.onDestroyView start t=" + System.nanoTime());
         unsetSearchListeners();
 
         searchBinding = null;
         super.onDestroyView();
+        // ytLog: uncomment (with the other SearchBackTrace logs) to time search-close lag.
+        // Log.i("SearchBackTrace", "SearchFragment.onDestroyView end t=" + System.nanoTime());
     }
 
     @Override

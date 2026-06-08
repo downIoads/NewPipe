@@ -121,6 +121,8 @@ public class MainActivity extends AppCompatActivity {
     private BroadcastReceiver debugFeedRefreshReceiver;
     // DEBUG-only receiver to switch main-page tabs from adb, for profiling tab-switch performance.
     private BroadcastReceiver debugSwitchTabReceiver;
+    // DEBUG-only receiver to trigger a back press from adb, for profiling back-navigation lag.
+    private BroadcastReceiver debugGoBackReceiver;
 
     // Keeps the launch/splash screen visible until the first feed thumbnails have been
     // prefetched into Picasso's memory cache, so the feed appears with thumbnails already
@@ -202,6 +204,7 @@ public class MainActivity extends AppCompatActivity {
         registerDebugBottomSheetReceiver();
         registerDebugFeedRefreshReceiver();
         registerDebugSwitchTabReceiver();
+        registerDebugGoBackReceiver();
     }
 
     /**
@@ -390,6 +393,34 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * DEBUG-only receiver to trigger a back press from adb, so back-navigation performance
+     * (e.g. closing the search page) can be profiled deterministically without touching the
+     * screen:
+     * <pre>
+     *   adb shell am broadcast -a org.schabi.newpipe.debug.GO_BACK -p org.schabi.newpipe.debug
+     * </pre>
+     * This routes through {@link #getOnBackPressedDispatcher()} so it follows the exact same
+     * path as a real system back gesture/button (which on modern Android is handled by the
+     * androidx OnBackPressedDispatcher, not {@link #onBackPressed()}).
+     */
+    private void registerDebugGoBackReceiver() {
+        if (!DEBUG) {
+            return;
+        }
+        debugGoBackReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(final Context context, final Intent intent) {
+                // ytLog: uncomment (with the other SearchBackTrace logs) to time search-close lag.
+                // Log.i("SearchBackTrace", "GO_BACK broadcast received t=" + System.nanoTime());
+                getOnBackPressedDispatcher().onBackPressed();
+            }
+        };
+        final IntentFilter filter = new IntentFilter("org.schabi.newpipe.debug.GO_BACK");
+        ContextCompat.registerReceiver(this, debugGoBackReceiver, filter,
+                ContextCompat.RECEIVER_EXPORTED);
+    }
+
+    /**
      * Suspends the first draw of the content view (keeping the launch/splash screen visible)
      * until the newest feed thumbnails have been prefetched into Picasso's memory cache, or a
      * safety timeout elapses. This way the feed is revealed with its thumbnails already loaded
@@ -566,6 +597,10 @@ public class MainActivity extends AppCompatActivity {
             unregisterReceiver(debugSwitchTabReceiver);
             debugSwitchTabReceiver = null;
         }
+        if (debugGoBackReceiver != null) {
+            unregisterReceiver(debugGoBackReceiver);
+            debugGoBackReceiver = null;
+        }
     }
 
     @Override
@@ -650,6 +685,8 @@ public class MainActivity extends AppCompatActivity {
         if (DEBUG) {
             Log.d(TAG, "onBackPressed() called");
         }
+        // ytLog: uncomment (with the other SearchBackTrace logs) to time search-close lag.
+        // Log.i("SearchBackTrace", "MainActivity.onBackPressed t=" + System.nanoTime());
 
         // In case bottomSheet is not visible on the screen or collapsed we can assume that the user
         // interacts with a fragment inside fragment_holder so all back presses should be

@@ -376,10 +376,21 @@ public final class NavigationHelper {
 
     public static void openSearchFragment(final FragmentManager fragmentManager,
                                           final int serviceId, final String searchString) {
-        defaultTransaction(fragmentManager)
-                .replace(R.id.fragment_holder, SearchFragment.getInstance(serviceId, searchString))
-                .addToBackStack(SEARCH_FRAGMENT_TAG)
-                .commit();
+        // Add the search fragment on top of (and hide) the current fragment instead of replacing
+        // it. Replacing destroys the underlying MainFragment's view, so returning from search
+        // forces a full rebuild of its 5-tab ViewPager — all tab fragment views re-inflate
+        // synchronously on the main thread (~370ms stall / dozens of skipped frames), which the
+        // user perceives as a laggy back press. Hiding keeps the view (and its already-loaded
+        // tabs) alive, so closing search is instant. The added SearchFragment needs an opaque
+        // background (set in fragment_search.xml) so the hidden fragment doesn't show through.
+        final FragmentTransaction transaction = defaultTransaction(fragmentManager)
+                .add(R.id.fragment_holder, SearchFragment.getInstance(serviceId, searchString))
+                .addToBackStack(SEARCH_FRAGMENT_TAG);
+        final Fragment current = fragmentManager.findFragmentById(R.id.fragment_holder);
+        if (current != null) {
+            transaction.hide(current);
+        }
+        transaction.commit();
     }
 
     public static void expandMainPlayer(final Context context) {
