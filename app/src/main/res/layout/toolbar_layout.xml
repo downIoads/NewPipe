@@ -21,6 +21,19 @@
             android:visibility="gone"
             tools:visibility="visible" />
 
+        <org.schabi.newpipe.views.NewPipeTextView
+            android:id="@+id/toolbar_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="1"
+            android:textAppearance="@style/TextAppearance.Widget.AppCompat.Toolbar.Title"
+            android:visibility="gone"
+            tools:text="What's New"
+            tools:visibility="visible" />
+
     </androidx.appcompat.widget.Toolbar>
 
 </LinearLayout>
