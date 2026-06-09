@@ -23,60 +23,38 @@ import org.schabi.newpipe.R;
 import org.schabi.newpipe.database.LocalItem;
 import org.schabi.newpipe.database.stream.StreamStatisticsEntry;
 import org.schabi.newpipe.database.stream.model.StreamEntity;
-import org.schabi.newpipe.databinding.PlaylistControlBinding;
-import org.schabi.newpipe.databinding.StatisticPlaylistControlBinding;
 import org.schabi.newpipe.error.ErrorInfo;
 import org.schabi.newpipe.error.UserAction;
 import org.schabi.newpipe.extractor.stream.StreamInfoItem;
-import org.schabi.newpipe.fragments.list.playlist.PlaylistControlViewHolder;
 import org.schabi.newpipe.info_list.dialog.InfoItemDialog;
 import org.schabi.newpipe.info_list.dialog.StreamDialogDefaultEntry;
 import org.schabi.newpipe.local.BaseLocalListFragment;
-import org.schabi.newpipe.player.playqueue.PlayQueue;
-import org.schabi.newpipe.player.playqueue.SinglePlayQueue;
 import org.schabi.newpipe.settings.HistorySettingsFragment;
 import org.schabi.newpipe.util.NavigationHelper;
 import org.schabi.newpipe.util.OnClickGesture;
-import org.schabi.newpipe.util.PlayButtonHelper;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Supplier;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.disposables.Disposable;
 
 public class StatisticsPlaylistFragment
-        extends BaseLocalListFragment<List<StreamStatisticsEntry>, Void>
-        implements PlaylistControlViewHolder {
+        extends BaseLocalListFragment<List<StreamStatisticsEntry>, Void> {
     private final CompositeDisposable disposables = new CompositeDisposable();
     @State
     Parcelable itemsListState;
-    private StatisticSortMode sortMode = StatisticSortMode.LAST_PLAYED;
-
-    private StatisticPlaylistControlBinding headerBinding;
-    private PlaylistControlBinding playlistControlBinding;
 
     /* Used for independent events */
     private Subscription databaseSubscription;
     private HistoryRecordManager recordManager;
 
     private List<StreamStatisticsEntry> processResult(final List<StreamStatisticsEntry> results) {
-        final Comparator<StreamStatisticsEntry> comparator;
-        switch (sortMode) {
-            case LAST_PLAYED:
-                comparator = Comparator.comparing(StreamStatisticsEntry::getLatestAccessDate);
-                break;
-            case MOST_PLAYED:
-                comparator = Comparator.comparingLong(StreamStatisticsEntry::getWatchCount);
-                break;
-            default:
-                return null;
-        }
+        final Comparator<StreamStatisticsEntry> comparator =
+                Comparator.comparing(StreamStatisticsEntry::getLatestAccessDate);
         Collections.sort(results, comparator.reversed());
         return results;
     }
@@ -121,21 +99,8 @@ public class StatisticsPlaylistFragment
     protected void initViews(final View rootView, final Bundle savedInstanceState) {
         super.initViews(rootView, savedInstanceState);
         if (!useAsFrontPage) {
-            setTitle(getString(R.string.title_last_played));
+            setTitle(getString(R.string.title_activity_history));
         }
-    }
-
-    @Override
-    protected Supplier<View> getListHeaderSupplier() {
-        return () -> {
-            headerBinding = StatisticPlaylistControlBinding.inflate(activity.getLayoutInflater(),
-                    itemsList, false);
-            playlistControlBinding = headerBinding.playlistControl;
-
-            initHeaderControls();
-
-            return headerBinding.getRoot();
-        };
     }
 
     @Override
@@ -202,9 +167,6 @@ public class StatisticsPlaylistFragment
         if (itemListAdapter != null) {
             itemListAdapter.unsetSelectedListener();
         }
-
-        headerBinding = null;
-        playlistControlBinding = null;
 
         if (databaseSubscription != null) {
             databaseSubscription.cancel();
@@ -276,8 +238,6 @@ public class StatisticsPlaylistFragment
             itemsListState = null;
         }
 
-        initHeaderControls();
-
         hideLoading();
     }
 
@@ -296,48 +256,6 @@ public class StatisticsPlaylistFragment
     /*//////////////////////////////////////////////////////////////////////////
     // Utils
     //////////////////////////////////////////////////////////////////////////*/
-
-    private void toggleSortMode() {
-        if (sortMode == StatisticSortMode.LAST_PLAYED) {
-            sortMode = StatisticSortMode.MOST_PLAYED;
-            setTitle(getString(R.string.title_most_played));
-        } else {
-            sortMode = StatisticSortMode.LAST_PLAYED;
-            setTitle(getString(R.string.title_last_played));
-        }
-        updateSortButton();
-        startLoading(true);
-    }
-
-    private void initHeaderControls() {
-        if (playlistControlBinding != null) {
-            playlistControlBinding.getRoot().setVisibility(View.VISIBLE);
-            PlayButtonHelper.initPlaylistControlClickListener(activity,
-                    playlistControlBinding, this);
-        }
-        if (headerBinding != null) {
-            headerBinding.sortButton.setOnClickListener(view -> toggleSortMode());
-            updateSortButton();
-        }
-    }
-
-    private void updateSortButton() {
-        if (headerBinding == null) {
-            return;
-        }
-        if (sortMode == StatisticSortMode.LAST_PLAYED) {
-            headerBinding.sortButtonIcon.setImageResource(
-                    R.drawable.ic_filter_list);
-            headerBinding.sortButtonText.setText(R.string.title_most_played);
-        } else {
-            headerBinding.sortButtonIcon.setImageResource(R.drawable.ic_history);
-            headerBinding.sortButtonText.setText(R.string.title_last_played);
-        }
-    }
-
-    private PlayQueue getPlayQueueStartingAt(final StreamStatisticsEntry infoItem) {
-        return getPlayQueue(Math.max(itemListAdapter.getItemsList().indexOf(infoItem), 0));
-    }
 
     private void showInfoItemDialog(final StreamStatisticsEntry item) {
         final Context context = getContext();
@@ -384,30 +302,5 @@ public class StatisticsPlaylistFragment
 
             disposables.add(onDelete);
         }
-    }
-
-    @Override
-    public PlayQueue getPlayQueue() {
-        return getPlayQueue(0);
-    }
-
-    private PlayQueue getPlayQueue(final int index) {
-        if (itemListAdapter == null) {
-            return new SinglePlayQueue(Collections.emptyList(), 0);
-        }
-
-        final List<LocalItem> infoItems = itemListAdapter.getItemsList();
-        final List<StreamInfoItem> streamInfoItems = new ArrayList<>(infoItems.size());
-        for (final LocalItem item : infoItems) {
-            if (item instanceof StreamStatisticsEntry) {
-                streamInfoItems.add(((StreamStatisticsEntry) item).toStreamInfoItem());
-            }
-        }
-        return new SinglePlayQueue(streamInfoItems, index);
-    }
-
-    private enum StatisticSortMode {
-        LAST_PLAYED,
-        MOST_PLAYED,
     }
 }
