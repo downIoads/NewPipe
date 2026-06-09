@@ -197,8 +197,10 @@ class FeedFragment : BaseStateFragment<FeedState>(), ScrollableTab {
     override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
         super.onCreateOptionsMenu(menu, inflater)
 
-        activity.supportActionBar?.setDisplayShowTitleEnabled(true)
-        activity.supportActionBar?.setTitle(R.string.fragment_feed_title)
+        activity.supportActionBar?.setDisplayShowTitleEnabled(!useAsFrontPage)
+        if (!useAsFrontPage) {
+            activity.supportActionBar?.setTitle(R.string.fragment_feed_title)
+        }
         activity.supportActionBar?.subtitle = groupName
 
         inflater.inflate(R.menu.menu_feed_fragment, menu)

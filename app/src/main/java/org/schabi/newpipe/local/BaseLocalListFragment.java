@@ -172,7 +172,7 @@ public abstract class BaseLocalListFragment<I, N> extends BaseStateFragment<I>
             return;
         }
 
-        supportActionBar.setDisplayShowTitleEnabled(true);
+        supportActionBar.setDisplayShowTitleEnabled(!useAsFrontPage);
     }
 
     /*//////////////////////////////////////////////////////////////////////////

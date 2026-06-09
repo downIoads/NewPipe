@@ -140,6 +140,7 @@ public abstract class BaseFragment extends Fragment {
             toolbarTitle.setVisibility(View.VISIBLE);
         }
         if (activity.getSupportActionBar() != null) {
+            activity.getSupportActionBar().setDisplayShowTitleEnabled(false);
             activity.getSupportActionBar().setTitle("");
         }
     }
@@ -151,6 +152,9 @@ public abstract class BaseFragment extends Fragment {
         final TextView toolbarTitle = activity.findViewById(R.id.toolbar_title);
         if (toolbarTitle != null) {
             toolbarTitle.setVisibility(View.GONE);
+        }
+        if (activity.getSupportActionBar() != null) {
+            activity.getSupportActionBar().setDisplayShowTitleEnabled(true);
         }
     }
 
