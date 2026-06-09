@@ -21,6 +21,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.RelativeLayout;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -53,6 +54,19 @@ import java.util.List;
 public class MainFragment extends BaseFragment implements TabLayout.OnTabSelectedListener {
     private FragmentMainBinding binding;
     private SelectedTabsPagerAdapter pagerAdapter;
+
+    /**
+     * Consumes the system back gesture/button while the main page is the foreground fragment.
+     * MainFragment is always the root of the back stack, so there is nothing to go back to from
+     * here. Without this callback, the modern predictive back gesture (Android 13+, with
+     * {@code android:enableOnBackInvokedCallback="true"}) is dispatched straight to the
+     * FragmentManager's own OnBackPressedCallback rather than to {@link
+     * org.schabi.newpipe.MainActivity#onBackPressed()}, so it pops MainFragment off the back stack
+     * and leaves an empty fragment_holder (the "empty tab + back arrow" bug on every main tab).
+     * Registering our own callback — added after the FragmentManager's, so it wins the dispatcher's
+     * LIFO ordering — intercepts that gesture and does nothing instead.
+     */
+    private OnBackPressedCallback rootBackCallback;
 
     private final List<Tab> tabsList = new ArrayList<>();
     private TabsManager tabsManager;
@@ -113,8 +127,31 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
 
         setupTabs();
         updateTabLayoutPosition();
+        setupRootBackCallback();
         // ytLog: uncomment (with the other SearchBackTrace logs) to time main-page view rebuild.
         // Log.i("SearchBackTrace", "MainFragment.initViews end t=" + System.nanoTime());
+    }
+
+    /**
+     * Registers {@link #rootBackCallback} on the activity's back dispatcher, scoped to this view's
+     * lifecycle (auto-removed when the view is destroyed, e.g. when another fragment replaces the
+     * main page). It is enabled only while the main page is actually in the foreground; see
+     * {@link #onHiddenChanged(boolean)} for the hide/show search case.
+     */
+    private void setupRootBackCallback() {
+        rootBackCallback = new OnBackPressedCallback(!isHidden()) {
+            @Override
+            public void handleOnBackPressed() {
+                // Intentionally do nothing: the main page is the root, there is nowhere to go back
+                // to. Consuming the event prevents the FragmentManager from popping MainFragment
+                // and leaving an empty holder.
+                if (DEBUG) {
+                    Log.d(TAG, "rootBackCallback: back consumed on main page (no-op)");
+                }
+            }
+        };
+        requireActivity().getOnBackPressedDispatcher()
+                .addCallback(getViewLifecycleOwner(), rootBackCallback);
     }
 
     @Override
@@ -150,6 +187,12 @@ public class MainFragment extends BaseFragment implements TabLayout.OnTabSelecte
     @Override
     public void onHiddenChanged(final boolean hidden) {
         super.onHiddenChanged(hidden);
+        // The search page is shown on top of us via hide()/show() while our view stays alive, so
+        // our back callback would otherwise keep consuming the back press meant to close search.
+        // Disable it while hidden, re-enable when we are the foreground fragment again.
+        if (rootBackCallback != null) {
+            rootBackCallback.setEnabled(!hidden);
+        }
         // The search page is shown on top of us via hide()/show() (see
         // NavigationHelper.openSearchFragment) rather than replace(), so our view is kept alive
         // and no onCreateView/onResume runs when we reappear. That means the toolbar — which the
