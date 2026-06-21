@@ -23,7 +23,9 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.view.MenuProvider;
+import androidx.fragment.app.Fragment;
 import androidx.preference.PreferenceManager;
+import androidx.viewpager.widget.ViewPager;
 
 import com.evernote.android.state.State;
 import com.google.android.material.snackbar.Snackbar;
@@ -156,11 +158,23 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
                 public void onPrepareMenu(@NonNull final Menu menu) {
                     menuNotifyButton = menu.findItem(R.id.menu_item_notify);
                     updateNotifyButton(channelSubscription);
+
+                    // Only offer "Sort" while the "Playlists" tab is the selected one.
+                    final MenuItem sortItem = menu.findItem(R.id.menu_item_sort);
+                    if (sortItem != null) {
+                        sortItem.setVisible(isPlaylistsTabSelected());
+                    }
                 }
 
                 @Override
                 public boolean onMenuItemSelected(@NonNull final MenuItem item) {
                     switch (item.getItemId()) {
+                        case R.id.menu_item_sort:
+                            final ChannelTabFragment playlistsTab = getSelectedChannelTabFragment();
+                            if (playlistsTab != null) {
+                                playlistsTab.showSortDialog();
+                            }
+                            break;
                         case R.id.menu_item_notify:
                             final boolean value = !item.isChecked();
                             item.setEnabled(false);
@@ -197,6 +211,17 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
         tabAdapter = new TabAdapter(getChildFragmentManager());
         binding.viewPager.setAdapter(tabAdapter);
         binding.tabLayout.setupWithViewPager(binding.viewPager);
+
+        // The "Sort" menu item is only relevant for the "Playlists" tab, so refresh the menu
+        // whenever the selected tab changes.
+        binding.viewPager.addOnPageChangeListener(new ViewPager.SimpleOnPageChangeListener() {
+            @Override
+            public void onPageSelected(final int position) {
+                if (activity != null) {
+                    activity.invalidateOptionsMenu();
+                }
+            }
+        });
 
         setTitle(name);
         binding.channelTitleView.setText(name);
@@ -453,6 +478,31 @@ public class ChannelFragment extends BaseStateFragment<ChannelInfo>
     /*//////////////////////////////////////////////////////////////////////////
     // Init
     //////////////////////////////////////////////////////////////////////////*/
+
+    /**
+     * @return the live {@link ChannelTabFragment} backing the currently selected tab, or
+     * {@code null} if the selected tab is not a channel tab (e.g. the "About" tab).
+     */
+    @Nullable
+    private ChannelTabFragment getSelectedChannelTabFragment() {
+        if (binding == null || tabAdapter == null) {
+            return null;
+        }
+        final int position = binding.tabLayout.getSelectedTabPosition();
+        if (position < 0 || position >= tabAdapter.getCount()) {
+            return null;
+        }
+        final Fragment fragment = tabAdapter.getItem(position);
+        if (fragment instanceof ChannelTabFragment) {
+            return (ChannelTabFragment) fragment;
+        }
+        return null;
+    }
+
+    private boolean isPlaylistsTabSelected() {
+        final ChannelTabFragment fragment = getSelectedChannelTabFragment();
+        return fragment != null && fragment.isPlaylistsTab();
+    }
 
     private void updateTabs() {
         tabAdapter.clearAllItems();

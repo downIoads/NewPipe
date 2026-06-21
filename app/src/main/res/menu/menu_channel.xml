@@ -10,6 +10,14 @@
         app:showAsAction="ifRoom" />
 
     <item
+        android:id="@+id/menu_item_sort"
+        android:orderInCategory="0"
+        android:title="@string/sort"
+        android:visible="false"
+        app:showAsAction="never"
+        tools:visible="true" />
+
+    <item
         android:id="@+id/menu_item_notify"
         android:checkable="true"
         android:orderInCategory="1"
