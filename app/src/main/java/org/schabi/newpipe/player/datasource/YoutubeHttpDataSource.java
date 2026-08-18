@@ -15,9 +15,11 @@ import static com.google.android.exoplayer2.util.Util.castNonNull;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getAndroidUserAgent;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getAndroidVrUserAgent;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getIosUserAgent;
+import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getVisionOsUserAgent;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isAndroidStreamingUrl;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isAndroidVrStreamingUrl;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isIosStreamingUrl;
+import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isVisionOsStreamingUrl;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isWebStreamingUrl;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.isWebEmbeddedPlayerStreamingUrl;
 import static java.lang.Math.min;
@@ -677,9 +679,11 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
             final boolean isWeb = isWebStreamingUrl(requestUrl);
             final boolean isWebEmbed = isWebEmbeddedPlayerStreamingUrl(requestUrl);
             final boolean isAndroid = isAndroidStreamingUrl(requestUrl);
+            final boolean isVisionOs = isVisionOsStreamingUrl(requestUrl);
             final boolean hasPot = requestUrl.contains("&pot=") || requestUrl.contains("?pot=");
             Log.d(TAG, "makeConnection: isWeb=" + isWeb + " isWebEmbed=" + isWebEmbed
                     + " isAndroid=" + isAndroid + " hasPot=" + hasPot
+                    + " isVisionOs=" + isVisionOs
                     + " url=" + requestUrl.substring(0, Math.min(requestUrl.length(), 200)));
             if ((isWeb || isWebEmbed || isAndroid) && !hasPot) {
                 final String streamingPot = PoTokenProviderImpl.INSTANCE.getCachedStreamingPot();
@@ -726,9 +730,13 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
         httpURLConnection.setRequestProperty(HttpHeaders.TE, "trailers");
 
         final boolean isAndroidVr = isAndroidVrStreamingUrl(requestUrl);
+        final boolean isVisionOs = isVisionOsStreamingUrl(requestUrl);
         final boolean isAndroidUrl = isAndroidStreamingUrl(requestUrl);
         final boolean isIosUrl = isIosStreamingUrl(requestUrl);
-        if (isAndroidVr) {
+        if (isVisionOs) {
+            httpURLConnection.setRequestProperty(HttpHeaders.USER_AGENT,
+                    getVisionOsUserAgent());
+        } else if (isAndroidVr) {
             httpURLConnection.setRequestProperty(HttpHeaders.USER_AGENT,
                     getAndroidVrUserAgent(null));
         } else if (isAndroidUrl) {
@@ -746,8 +754,8 @@ public final class YoutubeHttpDataSource extends BaseDataSource implements HttpD
                 allowGzip ? "gzip" : "identity");
         httpURLConnection.setInstanceFollowRedirects(followRedirects);
 
-        if (isAndroidVr) {
-            // ANDROID_VR client uses GET requests for streaming (matching yt-dlp behavior)
+        if (isAndroidVr || isVisionOs) {
+            // ANDROID_VR and VISIONOS clients use GET requests for streaming.
             httpURLConnection.setRequestMethod("GET");
             httpURLConnection.connect();
         } else {
