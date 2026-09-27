@@ -23,3 +23,8 @@ bin/
 CLAUDE.md
 CODEX.md
 PIXEL.md
+
+# other files
+GRAPHENE-VERSION-TRICK.md
+KNOWLEDGE.md
+scripts/reproduce-playback-403.sh

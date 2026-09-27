@@ -18,7 +18,10 @@
 package org.schabi.newpipe.views;
 
 import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.view.ViewTreeObserver;
@@ -26,7 +29,10 @@ import android.widget.SeekBar;
 
 import androidx.appcompat.widget.AppCompatSeekBar;
 
+import org.schabi.newpipe.R;
 import org.schabi.newpipe.util.DeviceUtils;
+
+import java.util.Arrays;
 
 /**
  * SeekBar, adapted for directional navigation. It emulates touch-related callbacks
@@ -34,6 +40,49 @@ import org.schabi.newpipe.util.DeviceUtils;
  * work with it.
   */
 public final class FocusAwareSeekBar extends AppCompatSeekBar {
+    private float[] sponsorBlockMarkers = new float[0];
+    private final Paint sponsorBlockPaint = new Paint();
+
+    /**
+     * Updates colored segments, preserving positions through resizing and rotation.
+     * @param markers normalized start/end pairs
+     */
+    public void setSponsorBlockMarkers(final float[] markers) {
+        if (!Arrays.equals(sponsorBlockMarkers, markers)) {
+            sponsorBlockMarkers = markers.clone();
+            invalidate();
+        }
+    }
+
+    @Override
+    protected synchronized void onDraw(final Canvas canvas) {
+        super.onDraw(canvas);
+        if (sponsorBlockMarkers.length == 0) {
+            return;
+        }
+        sponsorBlockPaint.setColor(getResources().getColor(R.color.sponsor_block_segment));
+        final float width = getWidth() - getPaddingLeft() - getPaddingRight();
+        final float center = (getHeight() + getPaddingTop() - getPaddingBottom()) / 2f;
+        final float halfHeight = 2 * getResources().getDisplayMetrics().density;
+        for (int i = 0; i + 1 < sponsorBlockMarkers.length; i += 2) {
+            final float start = sponsorBlockMarkers[i];
+            final float end = sponsorBlockMarkers[i + 1];
+            final boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+            final float left = getPaddingLeft() + width * (rtl ? 1 - end : start);
+            final float right = getPaddingLeft() + width * (rtl ? 1 - start : end);
+            canvas.drawRect(left, center - halfHeight, right, center + halfHeight,
+                    sponsorBlockPaint);
+        }
+        // Keep the seek thumb above the colored track, using AbsSeekBar's thumb translation.
+        final Drawable thumb = getThumb();
+        if (thumb != null) {
+            final int save = canvas.save();
+            canvas.translate(getPaddingLeft() - getThumbOffset(), getPaddingTop());
+            thumb.draw(canvas);
+            canvas.restoreToCount(save);
+        }
+    }
+
     private NestedListener listener;
 
     private ViewTreeObserver treeObserver;

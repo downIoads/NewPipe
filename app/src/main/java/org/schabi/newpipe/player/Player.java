@@ -329,6 +329,7 @@ public final class Player implements PlaybackListener, Listener {
     private final Context context;
     @NonNull
     private final SharedPreferences prefs;
+    private final SponsorBlockController sponsorBlockController;
     @NonNull
     private final HistoryRecordManager recordManager;
     @NonNull
@@ -492,6 +493,7 @@ public final class Player implements PlaybackListener, Listener {
         context = service;
         prefs = PreferenceManager.getDefaultSharedPreferences(context);
         recordManager = new HistoryRecordManager(context);
+        sponsorBlockController = new SponsorBlockController(this);
 
         setupBroadcastReceiver();
 
@@ -983,6 +985,7 @@ public final class Player implements PlaybackListener, Listener {
         PersistentPlayerLogger.log(context, "Player.destroyPlayer "
                 + "exoPlayerNull=" + exoPlayerIsNull()
                 + " currentState=" + currentState);
+        sponsorBlockController.reset();
         UIs.call(PlayerUi::destroyPlayer);
         diskCachePreloadDisposable.set(null);
 
@@ -1016,6 +1019,7 @@ public final class Player implements PlaybackListener, Listener {
             audioPreampListener = null;
         }
 
+        sponsorBlockController.destroy();
         saveStreamProgressState();
         setRecovery();
         stopActivityBinding();
@@ -1399,6 +1403,8 @@ public final class Player implements PlaybackListener, Listener {
         if (exoPlayerIsNull()) {
             return;
         }
+
+        sponsorBlockController.onProgress();
 
         // The secondary (red) seekbar should reflect everything that can be played back instantly:
         // ExoPlayer's in-memory buffer AND the bytes already prefetched to the on-disk cache. The
@@ -2085,6 +2091,7 @@ public final class Player implements PlaybackListener, Listener {
                 }
             });
         });
+        sponsorBlockController.onProgress();
     }
 
     private void startDiskCachePreload(@NonNull final MediaItemTag tag) {
@@ -2510,6 +2517,10 @@ public final class Player implements PlaybackListener, Listener {
         }
     }
 
+    public float[] getSponsorBlockMarkers() {
+        return sponsorBlockController.getMarkers();
+    }
+
     public void seekTo(final long positionMillis) {
         if (DEBUG) {
             Log.d(TAG, "seekTo() called with: position = [" + positionMillis + "]");
@@ -2539,6 +2550,8 @@ public final class Player implements PlaybackListener, Listener {
         if (!exoPlayerIsNull()) {
             // prevent invalid positions when fast-forwarding/-rewinding
             final long target = MathUtils.clamp(positionMillis, 0, simpleExoPlayer.getDuration());
+
+            sponsorBlockController.onManualSeek(simpleExoPlayer.getCurrentPosition(), target);
 
             // Seek probe: record where we are relative to the in-memory buffer and on-disk cache so
             // a subsequent load (or absence of one) tells us whether the seek target was already

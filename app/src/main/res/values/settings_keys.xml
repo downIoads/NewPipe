@@ -1542,4 +1542,5 @@
         <item>Japanese</item>
         <item>Korean</item>
     </string-array>
+    <string name="sponsor_block_enabled_key" translatable="false">sponsor_block_enabled</string>
 </resources>

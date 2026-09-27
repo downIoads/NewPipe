@@ -87,4 +87,5 @@
 
     <color name="black">#000</color>
 
+    <color name="sponsor_block_segment">#00D46A</color>
 </resources>

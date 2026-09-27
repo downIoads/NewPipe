@@ -917,4 +917,6 @@
     <string name="translation_grant_storage_title">Grant All Files Access</string>
     <string name="translation_grant_storage_summary">Required so the app can read the model file directly from external storage and survive reinstalls without recopying.</string>
     <string name="translation_path_unresolvable">Could not resolve the picked file to a real path. Please pick a file under /storage/emulated/0/.</string>
+    <string name="sponsor_block_title">Enable SponsorBlock</string>
+    <string name="sponsor_block_summary">Automatically mark and skip sponsored segments on YouTube. Uses community data from SponsorBlock (sponsor.ajay.app, CC BY-NC-SA 4.0). When enabled, a video ID hash prefix is sent to SponsorBlock.</string>
 </resources>

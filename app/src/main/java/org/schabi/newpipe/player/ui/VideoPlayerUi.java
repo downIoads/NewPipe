@@ -179,6 +179,7 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
         binding.playbackSeekBar.getThumb()
                 .setColorFilter(new PorterDuffColorFilter(Color.RED, PorterDuff.Mode.SRC_IN));
         tintPlaybackSeekBar();
+        binding.playbackSeekBar.setSponsorBlockMarkers(player.getSponsorBlockMarkers());
 
         final ContextThemeWrapper themeWrapper = new ContextThemeWrapper(context,
                 R.style.DarkPopupMenu);
