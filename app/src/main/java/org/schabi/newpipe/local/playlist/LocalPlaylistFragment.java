@@ -90,6 +90,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     private Subscription databaseSubscription;
 
     private CompositeDisposable disposables;
+    private Disposable liveRefreshDisposable;
 
     /** Whether the playlist has been fully loaded from db. */
     private AtomicBoolean isLoadingComplete;
@@ -248,6 +249,9 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
                 .onBackpressureLatest()
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(getPlaylistObserver());
+        if (isResumed()) {
+            refreshLiveStreams();
+        }
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -258,6 +262,17 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     public void onResume() {
         super.onResume();
         showCenteredTitle(getString(R.string.playlist));
+        refreshLiveStreams();
+    }
+
+    private void refreshLiveStreams() {
+        if (liveRefreshDisposable != null) {
+            disposables.remove(liveRefreshDisposable);
+        }
+        liveRefreshDisposable = playlistManager.refreshLiveStreams(playlistId)
+                .subscribe(() -> { },
+                        error -> Log.w(TAG, "Refreshing playlist live streams", error));
+        disposables.add(liveRefreshDisposable);
     }
 
     @Override

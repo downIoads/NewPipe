@@ -12,6 +12,7 @@ import java.time.OffsetDateTime
 import org.schabi.newpipe.database.BasicDAO
 import org.schabi.newpipe.database.stream.model.StreamEntity
 import org.schabi.newpipe.database.stream.model.StreamEntity.Companion.STREAM_ID
+import org.schabi.newpipe.extractor.stream.ContentAvailability
 import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.util.StreamTypeUtil
 
@@ -31,6 +32,20 @@ abstract class StreamDAO : BasicDAO<StreamEntity> {
 
     @Query("UPDATE streams SET uploader_url = :uploaderUrl WHERE url = :url AND service_id = :serviceId")
     abstract fun setUploaderUrl(serviceId: Long, url: String, uploaderUrl: String): Completable
+
+    /** Refresh volatile playlist metadata without replacing saved titles, thumbnails or dates. */
+    @Query(
+        "UPDATE streams SET stream_type = :streamType, view_count = :viewCount, " +
+            "duration = :duration, content_availability = :availability " +
+            "WHERE uid = :uid"
+    )
+    abstract fun updateLiveMetadata(
+        uid: Long,
+        streamType: StreamType,
+        viewCount: Long,
+        duration: Long,
+        availability: ContentAvailability
+    ): Int
 
     /**
      * Fill in a stream's duration only if it is currently unknown (`< 0`). Used by the feed's

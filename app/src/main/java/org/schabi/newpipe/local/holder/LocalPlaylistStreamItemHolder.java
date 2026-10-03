@@ -13,11 +13,13 @@ import org.schabi.newpipe.R;
 import org.schabi.newpipe.database.LocalItem;
 import org.schabi.newpipe.database.playlist.PlaylistStreamEntry;
 import org.schabi.newpipe.database.stream.model.StreamEntity;
+import org.schabi.newpipe.extractor.stream.StreamType;
 import org.schabi.newpipe.ktx.ViewUtils;
 import org.schabi.newpipe.local.LocalItemBuilder;
 import org.schabi.newpipe.local.history.HistoryRecordManager;
 import org.schabi.newpipe.util.DependentPreferenceHelper;
 import org.schabi.newpipe.util.Localization;
+import org.schabi.newpipe.util.StreamTypeUtil;
 import org.schabi.newpipe.util.image.PicassoHelper;
 import org.schabi.newpipe.views.AnimatedProgressBar;
 
@@ -65,13 +67,28 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
                 stream.getUploadDate(),
                 stream.getTextualUploadDate());
         final String uploaderName = Localization.truncateChannelName(stream.getUploader());
-        if (TextUtils.isEmpty(uploadDate)) {
+        final boolean isLive = StreamTypeUtil.isLiveStream(stream.getStreamType());
+        if (isLive) {
+            final Long viewers = stream.getViewCount();
+            final String watching = viewers == null || viewers < 0 ? ""
+                    : stream.getStreamType() == StreamType.AUDIO_LIVE_STREAM
+                    ? Localization.listeningCount(itemBuilder.getContext(), viewers)
+                    : Localization.shortWatchingCount(itemBuilder.getContext(), viewers);
+            itemAdditionalDetailsView.setText(TextUtils.isEmpty(watching)
+                    ? uploaderName : uploaderName + "\n" + watching);
+        } else if (TextUtils.isEmpty(uploadDate)) {
             itemAdditionalDetailsView.setText(uploaderName);
         } else {
             itemAdditionalDetailsView.setText(uploaderName + "\n" + uploadDate);
         }
 
-        if (item.getStreamEntity().getDuration() > 0) {
+        itemProgressView.setVisibility(View.GONE);
+        if (isLive) {
+            itemDurationView.setText(R.string.duration_live);
+            itemDurationView.setBackgroundColor(ContextCompat.getColor(itemBuilder.getContext(),
+                    R.color.live_duration_background_color));
+            itemDurationView.setVisibility(View.VISIBLE);
+        } else if (stream.getDuration() > 0) {
             itemDurationView.setText(Localization
                     .getDurationString(item.getStreamEntity().getDuration()));
             itemDurationView.setBackgroundColor(ContextCompat.getColor(itemBuilder.getContext(),
@@ -121,7 +138,8 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
         final PlaylistStreamEntry item = (PlaylistStreamEntry) localItem;
 
         if (DependentPreferenceHelper.getPositionsInListsEnabled(itemProgressView.getContext())
-                && item.getProgressMillis() > 0 && item.getStreamEntity().getDuration() > 0) {
+                && item.getProgressMillis() > 0 && item.getStreamEntity().getDuration() > 0
+                && !StreamTypeUtil.isLiveStream(item.getStreamEntity().getStreamType())) {
             itemProgressView.setMax((int) item.getStreamEntity().getDuration());
             if (itemProgressView.getVisibility() == View.VISIBLE) {
                 itemProgressView.setProgressAnimated((int) TimeUnit.MILLISECONDS

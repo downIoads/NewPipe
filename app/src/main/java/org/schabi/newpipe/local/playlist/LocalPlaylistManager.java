@@ -12,6 +12,8 @@ import org.schabi.newpipe.database.playlist.model.PlaylistEntity;
 import org.schabi.newpipe.database.playlist.model.PlaylistStreamEntity;
 import org.schabi.newpipe.database.stream.dao.StreamDAO;
 import org.schabi.newpipe.database.stream.model.StreamEntity;
+import org.schabi.newpipe.util.ExtractorHelper;
+import org.schabi.newpipe.util.StreamTypeUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -130,6 +132,26 @@ public class LocalPlaylistManager {
 
     public Flowable<List<PlaylistStreamEntry>> getPlaylistStreams(final long playlistId) {
         return playlistStreamTable.getOrderedStreamsOf(playlistId).subscribeOn(Schedulers.io());
+    }
+
+    /**
+     * Refresh streams last known to be live once, leaving cached rows usable when offline.
+     * @param playlistId the playlist to refresh
+     * @return completion after all live streams have been checked
+     */
+    public Completable refreshLiveStreams(final long playlistId) {
+        return getDistinctPlaylistStreams(playlistId).firstOrError()
+                .flattenAsFlowable(streams -> streams)
+                .map(PlaylistStreamEntry::getStreamEntity)
+                .filter(stream -> StreamTypeUtil.isLiveStream(stream.getStreamType()))
+                .flatMapCompletable(stream -> ExtractorHelper.getStreamInfo(
+                                stream.getServiceId(), stream.getUrl(), true)
+                        .flatMapCompletable(info -> Completable.fromAction(() ->
+                                streamTable.updateLiveMetadata(stream.getUid(),
+                                        info.getStreamType(), info.getViewCount(),
+                                        info.getDuration(), info.getContentAvailability())))
+                        .subscribeOn(Schedulers.io())
+                        .onErrorComplete(), false, 2);
     }
 
     public Maybe<Integer> renamePlaylist(final long playlistId, final String name) {
