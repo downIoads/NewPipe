@@ -26,6 +26,7 @@ import org.schabi.newpipe.extractor.Info
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.channel.ChannelInfo
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
+import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.feed.FeedInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
@@ -495,12 +496,16 @@ class FeedLoadManager(private val context: Context) {
                     ?.also { feedExtractor ->
                         // the user wants to use a feed extractor and there is one, use it
                         val feedStartMs = System.currentTimeMillis()
-                        val feedInfo = FeedInfo.getInfo(feedExtractor)
+                        val feedInfo = feedOrNullOnUnavailable { FeedInfo.getInfo(feedExtractor) }
                         feedInfoMs = System.currentTimeMillis() - feedStartMs
-                        errors.addAll(feedInfo.errors)
-                        originalInfo = feedInfo
-                        streams = feedInfo.relatedItems
-                        usedFeedExtractor = true
+                        if (feedInfo == null) {
+                            feedDbg("RSS unavailable ${label(subscriptionEntity)} -> channel tabs fallback")
+                        } else {
+                            errors.addAll(feedInfo.errors)
+                            originalInfo = feedInfo
+                            streams = feedInfo.relatedItems
+                            usedFeedExtractor = true
+                        }
                     }
             }
 
@@ -846,4 +851,11 @@ class FeedLoadManager(private val context: Context) {
             DebugFileLog.log(FEED_DEBUG_TAG, msg, t)
         }
     }
+}
+
+/** An unavailable RSS endpoint does not establish that the channel is unavailable. */
+internal fun <T> feedOrNullOnUnavailable(load: () -> T): T? = try {
+    load()
+} catch (_: ContentNotAvailableException) {
+    null
 }

@@ -412,9 +412,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ScrollableTab {
             )
         }
 
-        if (oldestSubscriptionUpdate != loadedState.oldestUpdate ||
-            (oldestSubscriptionUpdate == null && loadedState.oldestUpdate == null)
-        ) {
+        if (loadJustCompleted) {
             // ignore errors if they have already been handled for the current update
             handleItemsErrors(loadedState.itemsErrors)
         }
@@ -440,7 +438,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ScrollableTab {
     private fun handleItemsErrors(errors: List<Throwable>) {
         errors.forEachIndexed { i, t ->
             if (t is FeedLoadService.RequestException &&
-                t.cause is ContentNotAvailableException
+                t.cause is AccountTerminatedException
             ) {
                 disposables.add(
                     Single.fromCallable {

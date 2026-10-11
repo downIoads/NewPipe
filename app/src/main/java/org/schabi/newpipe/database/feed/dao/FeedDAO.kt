@@ -181,7 +181,13 @@ abstract class FeedDAO {
     @Query("SELECT MIN(last_updated) FROM feed_last_updated")
     abstract fun oldestSubscriptionUpdateFromAll(): Flowable<List<OffsetDateTime?>>
 
-    @Query("SELECT COUNT(*) FROM feed_last_updated WHERE last_updated IS NULL")
+    @Query(
+        """
+        SELECT COUNT(*) FROM subscriptions s
+        LEFT JOIN feed_last_updated lu ON s.uid = lu.subscription_id
+        WHERE lu.last_updated IS NULL
+        """
+    )
     abstract fun notLoadedCount(): Flowable<Long>
 
     @Query(
