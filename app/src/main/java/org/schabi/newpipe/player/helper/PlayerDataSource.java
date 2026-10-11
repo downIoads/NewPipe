@@ -227,6 +227,8 @@ public class PlayerDataSource {
      * for DASH segments) makes the cache miss across sessions and, worse, mismatches the stable
      * key the prefetch would otherwise use. We therefore derive a stable key from the immutable
      * {@code id} and {@code itag} params, so playback and the disk prefetch share one cache entry.
+     * Segmented streams also need their {@code sq} sequence number: each segment starts at byte
+     * zero, so sharing a key would replay the first cached segment for every later segment.
      *
      * @param uri         the stream URL being requested
      * @param fallbackKey the key to use when the URL is not a recognised YouTube media URL
@@ -240,7 +242,9 @@ public class PlayerDataSource {
             final String id = uri.getQueryParameter("id");
             final String itag = uri.getQueryParameter("itag");
             if (id != null && itag != null) {
-                return "yt:" + id + ":" + itag;
+                final String sequence = uri.getQueryParameter("sq");
+                final String streamKey = "yt:" + id + ":" + itag;
+                return sequence == null ? streamKey : streamKey + ":sq:" + sequence;
             }
         }
         return fallbackKey != null ? fallbackKey : uri.toString();
