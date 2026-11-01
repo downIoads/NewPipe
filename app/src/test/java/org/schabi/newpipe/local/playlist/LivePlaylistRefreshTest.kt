@@ -17,6 +17,7 @@ import org.schabi.newpipe.database.playlist.PlaylistStreamEntry
 import org.schabi.newpipe.database.playlist.dao.PlaylistStreamDAO
 import org.schabi.newpipe.database.stream.dao.StreamDAO
 import org.schabi.newpipe.database.stream.model.StreamEntity
+import org.schabi.newpipe.extractor.exceptions.ContentNotYetAvailableException
 import org.schabi.newpipe.extractor.stream.ContentAvailability
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamType
@@ -77,6 +78,23 @@ class LivePlaylistRefreshTest {
             LocalPlaylistManager(database).refreshLiveStreams(1).test().assertComplete()
             verify(streams).updateLiveMetadata(1, StreamType.LIVE_STREAM, 1234, -1, ContentAvailability.AVAILABLE)
             verify(streams).updateLiveMetadata(2, StreamType.POST_LIVE_AUDIO_STREAM, 1234, 3600, ContentAvailability.AVAILABLE)
+        }
+    }
+
+    @Test
+    fun unknownDurationlessVideoIsProbedAndMarkedUpcoming() {
+        val scheduled = entry(4, StreamType.VIDEO_STREAM).also {
+            it.streamEntity.contentAvailability = ContentAvailability.UNKNOWN
+        }
+        `when`(playlist.getStreamsWithoutDuplicates(1)).thenReturn(Flowable.just(mutableListOf(scheduled)))
+        mockStatic(ExtractorHelper::class.java).use { extractor ->
+            extractor.`when`<Single<StreamInfo>> {
+                ExtractorHelper.getStreamInfo(0, scheduled.streamEntity.url, true)
+            }.thenReturn(Single.error(ContentNotYetAvailableException("scheduled")))
+
+            LocalPlaylistManager(database).refreshLiveStreams(1).test().assertComplete()
+
+            verify(streams).updateContentAvailability(4, ContentAvailability.UPCOMING)
         }
     }
 

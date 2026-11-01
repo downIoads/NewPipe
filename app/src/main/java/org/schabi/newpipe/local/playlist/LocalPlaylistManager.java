@@ -12,6 +12,9 @@ import org.schabi.newpipe.database.playlist.model.PlaylistEntity;
 import org.schabi.newpipe.database.playlist.model.PlaylistStreamEntity;
 import org.schabi.newpipe.database.stream.dao.StreamDAO;
 import org.schabi.newpipe.database.stream.model.StreamEntity;
+import org.schabi.newpipe.extractor.exceptions.ContentNotYetAvailableException;
+import org.schabi.newpipe.extractor.stream.ContentAvailability;
+import org.schabi.newpipe.extractor.stream.StreamType;
 import org.schabi.newpipe.util.ExtractorHelper;
 import org.schabi.newpipe.util.StreamTypeUtil;
 
@@ -135,23 +138,44 @@ public class LocalPlaylistManager {
     }
 
     /**
-     * Refresh streams last known to be live once, leaving cached rows usable when offline.
+     * Refresh streams last known to be live and probe ambiguous durationless videos once, leaving
+     * cached rows usable when offline. A durationless video with unknown availability can be an
+     * upcoming livestream imported from the fast RSS feed. Once classified, it is no longer
+     * probed.
+     *
      * @param playlistId the playlist to refresh
-     * @return completion after all live streams have been checked
+     * @return completion after all relevant streams have been checked
      */
     public Completable refreshLiveStreams(final long playlistId) {
         return getDistinctPlaylistStreams(playlistId).firstOrError()
                 .flattenAsFlowable(streams -> streams)
                 .map(PlaylistStreamEntry::getStreamEntity)
-                .filter(stream -> StreamTypeUtil.isLiveStream(stream.getStreamType()))
-                .flatMapCompletable(stream -> ExtractorHelper.getStreamInfo(
-                                stream.getServiceId(), stream.getUrl(), true)
-                        .flatMapCompletable(info -> Completable.fromAction(() ->
-                                streamTable.updateLiveMetadata(stream.getUid(),
-                                        info.getStreamType(), info.getViewCount(),
-                                        info.getDuration(), info.getContentAvailability())))
-                        .subscribeOn(Schedulers.io())
-                        .onErrorComplete(), false, 2);
+                .filter(stream -> StreamTypeUtil.isLiveStream(stream.getStreamType())
+                        || isUnknownDurationlessVideo(stream))
+                .flatMapCompletable(this::refreshPlaylistStream, false, 2);
+    }
+
+    private Completable refreshPlaylistStream(final StreamEntity stream) {
+        final boolean canBeUpcoming = isUnknownDurationlessVideo(stream);
+        return ExtractorHelper.getStreamInfo(stream.getServiceId(), stream.getUrl(), true)
+                .flatMapCompletable(info -> Completable.fromAction(() ->
+                        streamTable.updateLiveMetadata(stream.getUid(), info.getStreamType(),
+                                info.getViewCount(), info.getDuration(),
+                                info.getContentAvailability())))
+                .onErrorResumeNext(error -> {
+                    if (canBeUpcoming && error instanceof ContentNotYetAvailableException) {
+                        return Completable.fromAction(() -> streamTable.updateContentAvailability(
+                                stream.getUid(), ContentAvailability.UPCOMING));
+                    }
+                    return Completable.complete();
+                })
+                .subscribeOn(Schedulers.io());
+    }
+
+    private static boolean isUnknownDurationlessVideo(final StreamEntity stream) {
+        return stream.getStreamType() == StreamType.VIDEO_STREAM
+                && stream.getDuration() < 0
+                && stream.getContentAvailability() == ContentAvailability.UNKNOWN;
     }
 
     public Maybe<Integer> renamePlaylist(final long playlistId, final String name) {

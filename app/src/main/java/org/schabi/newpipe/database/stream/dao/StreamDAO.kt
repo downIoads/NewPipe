@@ -47,6 +47,9 @@ abstract class StreamDAO : BasicDAO<StreamEntity> {
         availability: ContentAvailability
     ): Int
 
+    @Query("UPDATE streams SET content_availability = :availability WHERE uid = :uid")
+    abstract fun updateContentAvailability(uid: Long, availability: ContentAvailability): Int
+
     /**
      * Fill in a stream's duration only if it is currently unknown (`< 0`). Used by the feed's
      * background duration enrichment: the fast RSS feed path carries no duration, so after the

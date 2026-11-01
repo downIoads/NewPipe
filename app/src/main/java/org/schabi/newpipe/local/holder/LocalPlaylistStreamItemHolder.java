@@ -13,6 +13,7 @@ import org.schabi.newpipe.R;
 import org.schabi.newpipe.database.LocalItem;
 import org.schabi.newpipe.database.playlist.PlaylistStreamEntry;
 import org.schabi.newpipe.database.stream.model.StreamEntity;
+import org.schabi.newpipe.extractor.stream.ContentAvailability;
 import org.schabi.newpipe.extractor.stream.StreamType;
 import org.schabi.newpipe.ktx.ViewUtils;
 import org.schabi.newpipe.local.LocalItemBuilder;
@@ -68,7 +69,11 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
                 stream.getTextualUploadDate());
         final String uploaderName = Localization.truncateChannelName(stream.getUploader());
         final boolean isLive = StreamTypeUtil.isLiveStream(stream.getStreamType());
-        if (isLive) {
+        final boolean isUpcoming = stream.getContentAvailability()
+                == ContentAvailability.UPCOMING;
+        if (isUpcoming) {
+            itemAdditionalDetailsView.setText(uploaderName);
+        } else if (isLive) {
             final Long viewers = stream.getViewCount();
             final String watching = viewers == null || viewers < 0 ? ""
                     : stream.getStreamType() == StreamType.AUDIO_LIVE_STREAM
@@ -83,7 +88,12 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
         }
 
         itemProgressView.setVisibility(View.GONE);
-        if (isLive) {
+        if (isUpcoming) {
+            itemDurationView.setText(R.string.feed_show_upcoming);
+            itemDurationView.setBackgroundColor(ContextCompat.getColor(itemBuilder.getContext(),
+                    R.color.duration_background_color));
+            itemDurationView.setVisibility(View.VISIBLE);
+        } else if (isLive) {
             itemDurationView.setText(R.string.duration_live);
             itemDurationView.setBackgroundColor(ContextCompat.getColor(itemBuilder.getContext(),
                     R.color.live_duration_background_color));
@@ -139,7 +149,9 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
 
         if (DependentPreferenceHelper.getPositionsInListsEnabled(itemProgressView.getContext())
                 && item.getProgressMillis() > 0 && item.getStreamEntity().getDuration() > 0
-                && !StreamTypeUtil.isLiveStream(item.getStreamEntity().getStreamType())) {
+                && !StreamTypeUtil.isLiveStream(item.getStreamEntity().getStreamType())
+                && item.getStreamEntity().getContentAvailability()
+                != ContentAvailability.UPCOMING) {
             itemProgressView.setMax((int) item.getStreamEntity().getDuration());
             if (itemProgressView.getVisibility() == View.VISIBLE) {
                 itemProgressView.setProgressAnimated((int) TimeUnit.MILLISECONDS
