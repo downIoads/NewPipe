@@ -30,6 +30,7 @@ import org.schabi.newpipe.database.AppDatabase;
 import org.schabi.newpipe.database.LocalItem;
 import org.schabi.newpipe.database.playlist.PlaylistLocalItem;
 import org.schabi.newpipe.database.playlist.PlaylistMetadataEntry;
+import org.schabi.newpipe.database.playlist.model.PlaylistEntity;
 import org.schabi.newpipe.database.playlist.model.PlaylistRemoteEntity;
 import org.schabi.newpipe.databinding.DialogEditTextBinding;
 import org.schabi.newpipe.error.ErrorInfo;
@@ -498,12 +499,20 @@ public final class BookmarkFragment extends BaseLocalListFragment<List<PlaylistL
         final String unsetThumbnail = getString(R.string.unset_playlist_thumbnail);
         final boolean isThumbnailPermanent = localPlaylistManager
                 .getIsPlaylistThumbnailPermanent(selectedItem.getUid());
+        final boolean isWatchLater = PlaylistEntity.isWatchLaterName(
+                selectedItem.getOrderingName());
 
         final ArrayList<String> items = new ArrayList<>();
-        items.add(rename);
-        items.add(delete);
+        if (!isWatchLater) {
+            items.add(rename);
+            items.add(delete);
+        }
         if (isThumbnailPermanent) {
             items.add(unsetThumbnail);
+        }
+
+        if (items.isEmpty()) {
+            return;
         }
 
         final DialogInterface.OnClickListener action = (d, index) -> {

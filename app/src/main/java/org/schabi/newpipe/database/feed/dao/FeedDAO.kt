@@ -12,6 +12,7 @@ import java.time.OffsetDateTime
 import org.schabi.newpipe.database.feed.model.FeedEntity
 import org.schabi.newpipe.database.feed.model.FeedGroupEntity
 import org.schabi.newpipe.database.feed.model.FeedLastUpdatedEntity
+import org.schabi.newpipe.database.playlist.model.PlaylistEntity
 import org.schabi.newpipe.database.stream.StreamWithState
 import org.schabi.newpipe.database.stream.model.StreamStateEntity
 import org.schabi.newpipe.database.subscription.NotificationMode
@@ -38,7 +39,15 @@ abstract class FeedDAO {
      */
     @Query(
         """
-        SELECT s.*, sst.progress_time
+        SELECT s.*, sst.progress_time,
+        EXISTS(
+            SELECT 1
+            FROM playlist_stream_join ps
+            INNER JOIN playlists p
+            ON p.uid = ps.playlist_id
+            WHERE ps.stream_id = s.uid
+            AND p.name = '${PlaylistEntity.WATCH_LATER_NAME}'
+        ) AS ${StreamWithState.STREAM_IS_IN_WATCH_LATER}
         FROM streams s
 
         LEFT JOIN stream_state sst

@@ -20,6 +20,20 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <ImageView
+        android:id="@+id/itemWatchLaterView"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_margin="2dp"
+        android:background="@drawable/watch_later_badge_background"
+        android:contentDescription="@string/in_watch_later"
+        android:padding="2dp"
+        android:src="@drawable/ic_bookmark_check"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="@id/itemThumbnailView"
+        app:layout_constraintTop_toTopOf="@id/itemThumbnailView"
+        tools:visibility="visible" />
+
     <org.schabi.newpipe.views.NewPipeTextView
         android:id="@+id/itemDurationView"
         android:layout_width="wrap_content"

@@ -72,6 +72,7 @@ import org.schabi.newpipe.info_list.ItemViewMode
 import org.schabi.newpipe.info_list.dialog.InfoItemDialog
 import org.schabi.newpipe.ktx.animate
 import org.schabi.newpipe.ktx.animateHideRecyclerViewAllowingScrolling
+import org.schabi.newpipe.local.dialog.PlaylistDialog
 import org.schabi.newpipe.local.feed.item.StreamItem
 import org.schabi.newpipe.local.feed.service.FeedLoadService
 import org.schabi.newpipe.local.subscription.SubscriptionManager
@@ -143,6 +144,10 @@ class FeedFragment : BaseStateFragment<FeedState>(), ScrollableTab {
         val factory = FeedViewModel.getFactory(requireContext(), groupId)
         viewModel = ViewModelProvider(this, factory)[FeedViewModel::class.java]
         viewModel.stateLiveData.observe(viewLifecycleOwner) { it?.let(::handleResult) }
+        parentFragmentManager.setFragmentResultListener(
+            PlaylistDialog.WATCH_LATER_CHANGED_REQUEST_KEY,
+            viewLifecycleOwner
+        ) { _, _ -> viewModel.reloadFromDatabase() }
 
         groupAdapter = GroupieAdapter().apply {
             setOnItemClickListener(listenerStreamItem)
@@ -161,6 +166,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ScrollableTab {
     override fun onResume() {
         super.onResume()
         updateRelativeTimeViews()
+        viewModel.reloadFromDatabase()
 
         if (updateListViewModeOnResume) {
             updateListViewModeOnResume = false

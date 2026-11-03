@@ -10,5 +10,12 @@ data class StreamWithState(
     val stream: StreamEntity,
 
     @ColumnInfo(name = StreamStateEntity.STREAM_PROGRESS_MILLIS)
-    val stateProgressMillis: Long?
-)
+    val stateProgressMillis: Long?,
+
+    @ColumnInfo(name = STREAM_IS_IN_WATCH_LATER)
+    val isInWatchLater: Boolean
+) {
+    companion object {
+        const val STREAM_IS_IN_WATCH_LATER = "is_in_watch_later"
+    }
+}

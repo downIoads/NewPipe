@@ -163,7 +163,9 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
 
             headerBinding.playlistTitleView.setText(name);
             headerBinding.playlistTitleView.setSelected(true);
-            headerBinding.playlistTitleView.setOnClickListener(view -> createRenameDialog());
+            if (!isWatchLater()) {
+                headerBinding.playlistTitleView.setOnClickListener(view -> createRenameDialog());
+            }
 
             if (itemListAdapter != null) {
                 setStreamCountAndOverallDuration(itemListAdapter.getItemsList());
@@ -294,6 +296,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
         }
         super.onCreateOptionsMenu(menu, inflater);
         inflater.inflate(R.menu.menu_local_playlist, menu);
+        menu.findItem(R.id.menu_item_rename_playlist).setVisible(!isWatchLater());
     }
 
     @Override
@@ -385,7 +388,9 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     @Override
     public boolean onOptionsItemSelected(final MenuItem item) {
         if (item.getItemId() == R.id.menu_item_rename_playlist) {
-            createRenameDialog();
+            if (!isWatchLater()) {
+                createRenameDialog();
+            }
         } else if (item.getItemId() == R.id.menu_item_play_on_popup) {
             NavigationHelper.playOnPopupPlayer(requireContext(), getPlayQueue(), false);
         } else if (item.getItemId() == R.id.menu_item_remove_watched) {
@@ -543,7 +548,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     //////////////////////////////////////////////////////////////////////////*/
 
     private void createRenameDialog() {
-        if (playlistId == null || name == null || getContext() == null) {
+        if (playlistId == null || name == null || getContext() == null || isWatchLater()) {
             return;
         }
 
@@ -561,6 +566,10 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
                 .setPositiveButton(R.string.rename, (dialogInterface, i) ->
                         changePlaylistName(dialogBinding.dialogEditText.getText().toString()))
                 .show();
+    }
+
+    private boolean isWatchLater() {
+        return PlaylistEntity.isWatchLaterName(name);
     }
 
     private void changePlaylistName(final String title) {

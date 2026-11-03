@@ -110,6 +110,10 @@ class FeedViewModel(
         combineDisposable.dispose()
     }
 
+    fun reloadFromDatabase() {
+        FeedEventManager.postEvent(IdleEvent)
+    }
+
     private data class CombineResultEventHolder(
         val t1: FeedEventManager.Event,
         val t2: Boolean,

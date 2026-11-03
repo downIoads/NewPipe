@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import org.schabi.newpipe.NewPipeDatabase;
 import org.schabi.newpipe.R;
 import org.schabi.newpipe.database.playlist.PlaylistDuplicatesEntry;
+import org.schabi.newpipe.database.playlist.model.PlaylistEntity;
 import org.schabi.newpipe.database.stream.model.StreamEntity;
 import org.schabi.newpipe.local.LocalItemListAdapter;
 import org.schabi.newpipe.local.playlist.LocalPlaylistManager;
@@ -159,6 +160,9 @@ public final class PlaylistAppendDialog extends PlaylistDialog {
         playlistDisposables.add(manager.appendToPlaylist(playlist.getUid(), streams)
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(ignored -> {
+                    if (PlaylistEntity.isWatchLaterName(playlist.getOrderingName())) {
+                        notifyWatchLaterChanged();
+                    }
                     successToast.show();
 
                     if (playlist.getThumbnailStreamId() != null

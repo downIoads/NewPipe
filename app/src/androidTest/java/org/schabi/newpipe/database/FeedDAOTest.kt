@@ -8,12 +8,16 @@ import java.io.IOException
 import java.time.OffsetDateTime
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.schabi.newpipe.database.feed.dao.FeedDAO
 import org.schabi.newpipe.database.feed.model.FeedEntity
 import org.schabi.newpipe.database.feed.model.FeedGroupEntity
+import org.schabi.newpipe.database.playlist.model.PlaylistEntity
+import org.schabi.newpipe.database.playlist.model.PlaylistStreamEntity
 import org.schabi.newpipe.database.stream.StreamWithState
 import org.schabi.newpipe.database.stream.dao.StreamDAO
 import org.schabi.newpipe.database.stream.model.StreamEntity
@@ -31,13 +35,13 @@ class FeedDAOTest {
 
     private val serviceId = ServiceList.YouTube.serviceId
 
-    private val stream1 = StreamEntity(1, serviceId, "https://youtube.com/watch?v=1", "stream 1", StreamType.VIDEO_STREAM, 1000, "channel-1", "https://youtube.com/channel/1", "https://i.ytimg.com/vi/1/hqdefault.jpg", 100, "2023-01-01", OffsetDateTime.parse("2023-01-01T00:00:00Z"))
-    private val stream2 = StreamEntity(2, serviceId, "https://youtube.com/watch?v=2", "stream 2", StreamType.VIDEO_STREAM, 1000, "channel-1", "https://youtube.com/channel/1", "https://i.ytimg.com/vi/1/hqdefault.jpg", 100, "2023-01-02", OffsetDateTime.parse("2023-01-02T00:00:00Z"))
-    private val stream3 = StreamEntity(3, serviceId, "https://youtube.com/watch?v=3", "stream 3", StreamType.LIVE_STREAM, 1000, "channel-1", "https://youtube.com/channel/1", "https://i.ytimg.com/vi/1/hqdefault.jpg", 100, "2023-01-03", OffsetDateTime.parse("2023-01-03T00:00:00Z"))
-    private val stream4 = StreamEntity(4, serviceId, "https://youtube.com/watch?v=4", "stream 4", StreamType.VIDEO_STREAM, 1000, "channel-2", "https://youtube.com/channel/2", "https://i.ytimg.com/vi/1/hqdefault.jpg", 100, "2023-08-10", OffsetDateTime.parse("2023-08-10T00:00:00Z"))
-    private val stream5 = StreamEntity(5, serviceId, "https://youtube.com/watch?v=5", "stream 5", StreamType.VIDEO_STREAM, 1000, "channel-2", "https://youtube.com/channel/2", "https://i.ytimg.com/vi/1/hqdefault.jpg", 100, "2023-08-20", OffsetDateTime.parse("2023-08-20T00:00:00Z"))
-    private val stream6 = StreamEntity(6, serviceId, "https://youtube.com/watch?v=6", "stream 6", StreamType.VIDEO_STREAM, 1000, "channel-3", "https://youtube.com/channel/3", "https://i.ytimg.com/vi/1/hqdefault.jpg", 100, "2023-09-01", OffsetDateTime.parse("2023-09-01T00:00:00Z"))
-    private val stream7 = StreamEntity(7, serviceId, "https://youtube.com/watch?v=7", "stream 7", StreamType.VIDEO_STREAM, 1000, "channel-4", "https://youtube.com/channel/4", "https://i.ytimg.com/vi/1/hqdefault.jpg", 100, "2023-08-10", OffsetDateTime.parse("2023-08-10T00:00:00Z"))
+    private val stream1 = stream(1, "2023-01-01T00:00:00Z")
+    private val stream2 = stream(2, "2023-01-02T00:00:00Z")
+    private val stream3 = stream(3, "2023-01-03T00:00:00Z", StreamType.LIVE_STREAM)
+    private val stream4 = stream(4, "2023-08-10T00:00:00Z", uploaderNumber = 2)
+    private val stream5 = stream(5, "2023-08-20T00:00:00Z", uploaderNumber = 2)
+    private val stream6 = stream(6, "2023-09-01T00:00:00Z", uploaderNumber = 3)
+    private val stream7 = stream(7, "2023-08-10T00:00:00Z", uploaderNumber = 4)
 
     private val allStreams = listOf(
         stream1,
@@ -74,7 +78,8 @@ class FeedDAOTest {
             FeedGroupEntity.GROUP_ALL_ID,
             includePlayed = true,
             includePartiallyPlayed = true,
-            null
+            uploadDateBefore = null,
+            uploadDateAfter = null
         )
             .blockingGet()
         val allowedStreams = listOf(stream3, stream5, stream6, stream7)
@@ -88,12 +93,59 @@ class FeedDAOTest {
             FeedGroupEntity.GROUP_ALL_ID,
             includePlayed = true,
             includePartiallyPlayed = true,
-            null
+            uploadDateBefore = null,
+            uploadDateAfter = null
         )
             .blockingGet()
         val allowedStreams = listOf(stream3, stream4, stream5, stream6, stream7)
         assertEqual(streams, allowedStreams)
     }
+
+    @Test
+    fun getStreamsMarksWatchLaterMembership() {
+        clearAndFillTables()
+        val playlistId = db.playlistDAO().insert(
+            PlaylistEntity(
+                0,
+                PlaylistEntity.WATCH_LATER_NAME,
+                false,
+                PlaylistEntity.DEFAULT_THUMBNAIL_ID,
+                0
+            )
+        )
+        db.playlistStreamDAO().insert(PlaylistStreamEntity(playlistId, stream1.uid, 0))
+
+        val streams = feedDAO.getStreams(
+            FeedGroupEntity.GROUP_ALL_ID,
+            includePlayed = true,
+            includePartiallyPlayed = true,
+            uploadDateBefore = null,
+            uploadDateAfter = null
+        ).blockingGet(emptyList()).associateBy { it.stream.uid }
+
+        assertTrue(streams.getValue(stream1.uid).isInWatchLater)
+        assertFalse(streams.getValue(stream2.uid).isInWatchLater)
+    }
+
+    private fun stream(
+        uid: Long,
+        uploadDate: String,
+        type: StreamType = StreamType.VIDEO_STREAM,
+        uploaderNumber: Int = 1
+    ) = StreamEntity(
+        uid,
+        serviceId,
+        "https://example.invalid/stream/$uid",
+        "stream $uid",
+        type,
+        1000,
+        "uploader-$uploaderNumber",
+        "https://example.invalid/uploader/$uploaderNumber",
+        "https://example.invalid/thumbnail/$uid",
+        100,
+        uploadDate.substringBefore('T'),
+        OffsetDateTime.parse(uploadDate)
+    )
 
     private fun assertEqual(streams: List<StreamWithState>?, allowedStreams: List<StreamEntity>) {
         assertNotNull(streams)
@@ -121,10 +173,10 @@ class FeedDAOTest {
         streamDAO.insertAll(allStreams)
         subscriptionDAO.insertAll(
             listOf(
-                SubscriptionEntity.from(ChannelInfo(serviceId, "1", "https://youtube.com/channel/1", "https://youtube.com/channel/1", "channel-1")),
-                SubscriptionEntity.from(ChannelInfo(serviceId, "2", "https://youtube.com/channel/2", "https://youtube.com/channel/2", "channel-2")),
-                SubscriptionEntity.from(ChannelInfo(serviceId, "3", "https://youtube.com/channel/3", "https://youtube.com/channel/3", "channel-3")),
-                SubscriptionEntity.from(ChannelInfo(serviceId, "4", "https://youtube.com/channel/4", "https://youtube.com/channel/4", "channel-4"))
+                SubscriptionEntity.from(ChannelInfo(serviceId, "1", "https://example.invalid/uploader/1", "https://example.invalid/uploader/1", "uploader-1")),
+                SubscriptionEntity.from(ChannelInfo(serviceId, "2", "https://example.invalid/uploader/2", "https://example.invalid/uploader/2", "uploader-2")),
+                SubscriptionEntity.from(ChannelInfo(serviceId, "3", "https://example.invalid/uploader/3", "https://example.invalid/uploader/3", "uploader-3")),
+                SubscriptionEntity.from(ChannelInfo(serviceId, "4", "https://example.invalid/uploader/4", "https://example.invalid/uploader/4", "uploader-4"))
             )
         )
         feedDAO.insertAll(

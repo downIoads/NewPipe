@@ -70,6 +70,8 @@ data class StreamItem(
     }
 
     override fun bind(viewBinding: ListStreamItemBinding, position: Int) {
+        viewBinding.itemWatchLaterView.visibility =
+            if (streamWithState.isInWatchLater) View.VISIBLE else View.GONE
         viewBinding.itemVideoTitleView.text = stream.title
         viewBinding.itemUploaderView.text = stream.uploader
 

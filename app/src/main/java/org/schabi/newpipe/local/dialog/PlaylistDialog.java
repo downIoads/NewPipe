@@ -28,6 +28,8 @@ import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.Disposable;
 
 public abstract class PlaylistDialog extends DialogFragment implements StateSaver.WriteRead {
+    public static final String WATCH_LATER_CHANGED_REQUEST_KEY =
+            "org.schabi.newpipe.local.dialog.WATCH_LATER_CHANGED";
 
     @Nullable
     private DialogInterface.OnDismissListener onDismissListener = null;
@@ -123,6 +125,11 @@ public abstract class PlaylistDialog extends DialogFragment implements StateSave
 
     protected void setStreamEntities(final List<StreamEntity> streamEntities) {
         this.streamEntities = streamEntities;
+    }
+
+    protected void notifyWatchLaterChanged() {
+        getParentFragmentManager().setFragmentResult(
+                WATCH_LATER_CHANGED_REQUEST_KEY, new Bundle());
     }
 
     /*//////////////////////////////////////////////////////////////////////////

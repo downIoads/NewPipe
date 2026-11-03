@@ -43,7 +43,7 @@ public class LocalPlaylistManager {
 
     public Maybe<List<Long>> createPlaylist(final String name, final List<StreamEntity> streams) {
         // Disallow creation of empty playlists
-        if (streams.isEmpty()) {
+        if (streams.isEmpty() || PlaylistEntity.isWatchLaterName(name)) {
             return Maybe.empty();
         }
 
@@ -103,13 +103,41 @@ public class LocalPlaylistManager {
             items.add(new PlaylistEntity(item));
         }
         return Completable.fromRunnable(() -> database.runInTransaction(() -> {
+            final long watchLaterId = ensureWatchLaterPlaylistInTransaction();
             for (final Long uid : deletedItems) {
                 playlistTable.deletePlaylist(uid);
             }
             for (final PlaylistEntity item : items) {
-                playlistTable.upsertPlaylist(item);
+                if (item.getUid() == watchLaterId) {
+                    item.setName(PlaylistEntity.WATCH_LATER_NAME);
+                    playlistTable.upsertPlaylist(item);
+                } else if (!PlaylistEntity.isWatchLaterName(item.getName())) {
+                    playlistTable.upsertPlaylist(item);
+                }
             }
         })).subscribeOn(Schedulers.io());
+    }
+
+    /**
+     * Ensure the reserved, empty-capable Watch Later playlist exists.
+     *
+     * @return completion after the playlist was found or created
+     */
+    public Completable ensureWatchLaterPlaylist() {
+        return Completable.fromAction(() -> database.runInTransaction(() ->
+                ensureWatchLaterPlaylistInTransaction()))
+                .subscribeOn(Schedulers.io());
+    }
+
+    private long ensureWatchLaterPlaylistInTransaction() {
+        final Long existingId = playlistTable.getPlaylistIdByName(
+                PlaylistEntity.WATCH_LATER_NAME);
+        if (existingId != null) {
+            return existingId;
+        }
+
+        return playlistTable.insert(new PlaylistEntity(PlaylistEntity.WATCH_LATER_NAME,
+                false, PlaylistEntity.DEFAULT_THUMBNAIL_ID, -1));
     }
 
     public Flowable<List<PlaylistStreamEntry>> getDistinctPlaylistStreams(final long playlistId) {
@@ -125,12 +153,15 @@ public class LocalPlaylistManager {
      * @return a list of {@link PlaylistDuplicatesEntry}
      */
     public Flowable<List<PlaylistDuplicatesEntry>> getPlaylistDuplicates(final String streamUrl) {
-        return playlistStreamTable.getPlaylistDuplicatesMetadata(streamUrl)
+        return ensureWatchLaterPlaylist()
+                .andThen(playlistStreamTable.getPlaylistDuplicatesMetadata(streamUrl))
                 .subscribeOn(Schedulers.io());
     }
 
     public Flowable<List<PlaylistMetadataEntry>> getPlaylists() {
-        return playlistStreamTable.getPlaylistMetadata().subscribeOn(Schedulers.io());
+        return ensureWatchLaterPlaylist()
+                .andThen(playlistStreamTable.getPlaylistMetadata())
+                .subscribeOn(Schedulers.io());
     }
 
     public Flowable<List<PlaylistStreamEntry>> getPlaylistStreams(final long playlistId) {
@@ -179,6 +210,9 @@ public class LocalPlaylistManager {
     }
 
     public Maybe<Integer> renamePlaylist(final long playlistId, final String name) {
+        if (PlaylistEntity.isWatchLaterName(name)) {
+            return Maybe.empty();
+        }
         return modifyPlaylist(playlistId, name, THUMBNAIL_ID_LEAVE_UNCHANGED, false);
     }
 
@@ -213,6 +247,8 @@ public class LocalPlaylistManager {
         return playlistTable.getPlaylist(playlistId)
                 .firstElement()
                 .filter(playlistEntities -> !playlistEntities.isEmpty())
+                .filter(playlistEntities -> name == null || !PlaylistEntity.isWatchLaterName(
+                        playlistEntities.get(0).getName()))
                 .map(playlistEntities -> {
                     final PlaylistEntity playlist = playlistEntities.get(0);
                     if (name != null) {

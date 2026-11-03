@@ -19,7 +19,10 @@ interface PlaylistDAO : BasicDAO<PlaylistEntity> {
     @Query("SELECT * FROM playlists")
     override fun getAll(): Flowable<List<PlaylistEntity>>
 
-    @Query("DELETE FROM playlists")
+    @Query(
+        "DELETE FROM playlists WHERE name IS NULL " +
+            "OR name != '${PlaylistEntity.WATCH_LATER_NAME}'"
+    )
     override fun deleteAll(): Int
 
     override fun listByService(serviceId: Int): Flowable<List<PlaylistEntity>> {
@@ -29,8 +32,17 @@ interface PlaylistDAO : BasicDAO<PlaylistEntity> {
     @Query("SELECT * FROM playlists WHERE uid = :playlistId")
     fun getPlaylist(playlistId: Long): Flowable<MutableList<PlaylistEntity>>
 
-    @Query("DELETE FROM playlists WHERE uid = :playlistId")
+    @Query(
+        "DELETE FROM playlists WHERE uid = :playlistId " +
+            "AND (name IS NULL OR name != '${PlaylistEntity.WATCH_LATER_NAME}')"
+    )
     fun deletePlaylist(playlistId: Long): Int
+
+    @Query(
+        "SELECT uid FROM playlists WHERE name = :name " +
+            "ORDER BY uid LIMIT 1"
+    )
+    fun getPlaylistIdByName(name: String): Long?
 
     @get:Query("SELECT COUNT(*) FROM playlists")
     val count: Flowable<Long>

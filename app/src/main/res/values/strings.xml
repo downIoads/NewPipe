@@ -38,6 +38,7 @@
     <string name="tab_subscriptions">Subscriptions</string>
     <string name="tab_bookmarks">Playlists</string>
     <string name="playlist">Playlist</string>
+    <string name="in_watch_later">In Watch Later</string>
     <string name="tab_bookmarks_short">Playlists</string>
     <string name="tab_choose">Choose Tab</string>
     <string name="controls_background_title">Background</string>

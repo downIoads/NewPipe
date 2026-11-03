@@ -42,6 +42,10 @@ data class PlaylistEntity @JvmOverloads constructor(
 
     companion object {
         const val DEFAULT_THUMBNAIL_ID = -1L
+        const val WATCH_LATER_NAME = "Watch Later"
+
+        @JvmStatic
+        fun isWatchLaterName(name: String?): Boolean = name == WATCH_LATER_NAME
 
         const val PLAYLIST_TABLE = "playlists"
         const val PLAYLIST_ID = "uid"

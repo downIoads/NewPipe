@@ -21,6 +21,7 @@ import org.schabi.newpipe.database.subscription.NotificationMode
 import org.schabi.newpipe.extractor.stream.ContentAvailability
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.StreamType
+import org.schabi.newpipe.local.playlist.LocalPlaylistManager
 import org.schabi.newpipe.local.subscription.FeedGroupIcon
 
 class FeedDatabaseManager(context: Context) {
@@ -28,6 +29,7 @@ class FeedDatabaseManager(context: Context) {
     private val feedTable = database.feedDAO()
     private val feedGroupTable = database.feedGroupDAO()
     private val streamTable = database.streamDAO()
+    private val localPlaylistManager = LocalPlaylistManager(database)
 
     companion object {
         /**
@@ -47,12 +49,14 @@ class FeedDatabaseManager(context: Context) {
         includePartiallyPlayedStreams: Boolean,
         includeFutureStreams: Boolean
     ): Maybe<List<StreamWithState>> {
-        return feedTable.getStreams(
-            groupId,
-            includePlayedStreams,
-            includePartiallyPlayedStreams,
-            if (includeFutureStreams) null else OffsetDateTime.now(),
-            OffsetDateTime.now().minusDays(3)
+        return localPlaylistManager.ensureWatchLaterPlaylist().andThen(
+            feedTable.getStreams(
+                groupId,
+                includePlayedStreams,
+                includePartiallyPlayedStreams,
+                if (includeFutureStreams) null else OffsetDateTime.now(),
+                OffsetDateTime.now().minusDays(3)
+            )
         )
     }
 

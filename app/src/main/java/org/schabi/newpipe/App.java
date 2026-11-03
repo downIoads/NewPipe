@@ -23,6 +23,7 @@ import org.schabi.newpipe.extractor.ServiceList;
 import org.schabi.newpipe.extractor.downloader.Downloader;
 import org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor;
 import org.schabi.newpipe.ktx.ExceptionUtils;
+import org.schabi.newpipe.local.playlist.LocalPlaylistManager;
 import org.schabi.newpipe.player.helper.PlayerDataSource;
 import org.schabi.newpipe.settings.NewPipeSettings;
 import org.schabi.newpipe.util.BridgeStateSaverInitializer;
@@ -140,6 +141,13 @@ public class App extends Application {
                 && prefs.getBoolean(getString(R.string.show_image_indicators_key), false));
 
         configureRxJavaErrorHandler();
+
+        new LocalPlaylistManager(NewPipeDatabase.getInstance(this))
+                .ensureWatchLaterPlaylist()
+                .subscribe(
+                        () -> { },
+                        throwable -> Log.e(TAG, "Could not ensure Watch Later playlist",
+                                throwable));
 
         YoutubeStreamExtractor.setPoTokenProvider(PoTokenProviderImpl.INSTANCE);
         PoTokenProviderImpl.INSTANCE.warmUpAsync();
