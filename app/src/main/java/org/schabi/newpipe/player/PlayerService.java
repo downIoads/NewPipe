@@ -249,6 +249,11 @@ public final class PlayerService extends MediaBrowserServiceCompat {
         if (player != null && !player.videoPlayerSelected()) {
             return;
         }
+        PersistentPlayerLogger.log(this, "PlayerService.onTaskRemoved stopSelfBeforeHalt");
+        // Clear Android's start-requested state before terminating the process. Otherwise the
+        // system treats the intentional halt as a crashed service and restarts it, which can kill
+        // the next MainActivity launch while the removed task is still being torn down.
+        stopSelf();
         onDestroy();
         // Unload from memory completely
         Runtime.getRuntime().halt(0);
