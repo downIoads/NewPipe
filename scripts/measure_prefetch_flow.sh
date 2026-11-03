@@ -6,11 +6,11 @@
 # prefetch), waits for the prefetch to complete, then fires the normal VIEW intent and measures
 # firstFrameMs with scripts/trace_video_startup.py.
 #
-# Usage: scripts/measure_prefetch_flow.sh [URL] [RUNS]
+# Usage: scripts/measure_prefetch_flow.sh URL [RUNS]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-URL="${1:-https://www.youtube.com/watch?v=jNQXAC9IVRw}"
+URL="${1:?Usage: scripts/measure_prefetch_flow.sh URL [RUNS]}"
 RUNS="${2:-3}"
 PKG=org.schabi.newpipe.debug
 

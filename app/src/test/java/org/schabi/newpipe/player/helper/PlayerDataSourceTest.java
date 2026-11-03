@@ -12,17 +12,17 @@ import static org.mockito.Mockito.when;
 public class PlayerDataSourceTest {
     @Test
     public void archivedLivestreamSegmentsDoNotShareCachedBytes() {
-        final String first = key("d_w0066nddA.1", "299", "0");
-        assertNotEquals(first, key("d_w0066nddA.1", "299", "1"));
-        assertNotEquals(first, key("d_w0066nddA.1", "299", "43"));
+        final String first = key("test-archive.1", "299", "0");
+        assertNotEquals(first, key("test-archive.1", "299", "1"));
+        assertNotEquals(first, key("test-archive.1", "299", "43"));
         // Do not reuse the old entry polluted by caching every segment under one key.
-        assertNotEquals(first, "yt:d_w0066nddA.1:299");
+        assertNotEquals(first, "yt:test-archive.1:299");
     }
 
     @Test
     public void segmentIdentitySurvivesUrlRefreshAndCustomKeyChanges() {
-        final Uri original = mediaUri("d_w0066nddA.1", "299", "43");
-        final Uri refreshed = mediaUri("d_w0066nddA.1", "299", "43");
+        final Uri original = mediaUri("test-archive.1", "299", "43");
+        final Uri refreshed = mediaUri("test-archive.1", "299", "43");
         when(original.toString()).thenReturn("https://old.googlevideo.com/?expire=1&sq=43");
         when(refreshed.toString()).thenReturn("https://new.googlevideo.com/?expire=2&sq=43");
         assertEquals(PlayerDataSource.stableCacheKey(original, "old-custom-key"),
@@ -31,15 +31,15 @@ public class PlayerDataSourceTest {
 
     @Test
     public void audioAndVideoSegmentsRemainSeparate() {
-        assertNotEquals(key("d_w0066nddA.1", "299", "43"),
-                key("d_w0066nddA.1", "140", "43"));
+        assertNotEquals(key("test-archive.1", "299", "43"),
+                key("test-archive.1", "140", "43"));
     }
 
     @Test
     public void progressiveStreamsKeepTheirExistingPrefetchKey() {
-        assertEquals("yt:jNQXAC9IVRw:137", key("jNQXAC9IVRw", "137", null));
-        assertNotEquals(key("jNQXAC9IVRw", "137", null),
-                key("jNQXAC9IVRw", "137", "0"));
+        assertEquals("yt:test-video-id:137", key("test-video-id", "137", null));
+        assertNotEquals(key("test-video-id", "137", null),
+                key("test-video-id", "137", "0"));
     }
 
     @Test

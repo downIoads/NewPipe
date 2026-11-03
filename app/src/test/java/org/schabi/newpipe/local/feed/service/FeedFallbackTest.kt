@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
+import org.schabi.newpipe.extractor.exceptions.ContentNotYetAvailableException
 import org.schabi.newpipe.extractor.exceptions.ParsingException
 
 class FeedFallbackTest {
@@ -26,5 +27,14 @@ class FeedFallbackTest {
     @Test(expected = ParsingException::class)
     fun malformedFeedStillReportsExtractionFailure() {
         feedOrNullOnUnavailable<String> { throw ParsingException("invalid RSS") }
+    }
+
+    @Test
+    fun scheduledStreamProbeIsRecognized() {
+        assertEquals(
+            true,
+            isUpcomingFeedError(ContentNotYetAvailableException("scheduled"))
+        )
+        assertEquals(false, isUpcomingFeedError(IOException("offline")))
     }
 }

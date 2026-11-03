@@ -27,8 +27,10 @@ import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.channel.ChannelInfo
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
+import org.schabi.newpipe.extractor.exceptions.ContentNotYetAvailableException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.feed.FeedInfo
+import org.schabi.newpipe.extractor.stream.ContentAvailability
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.ktx.getStringSafe
@@ -39,6 +41,7 @@ import org.schabi.newpipe.util.DebugFileLog
 import org.schabi.newpipe.util.ExtractorHelper.getChannelInfo
 import org.schabi.newpipe.util.ExtractorHelper.getChannelTab
 import org.schabi.newpipe.util.ExtractorHelper.getMoreChannelTabItems
+import org.schabi.newpipe.util.ExtractorHelper.getStreamInfo
 
 class FeedLoadManager(private val context: Context) {
 
@@ -345,10 +348,10 @@ class FeedLoadManager(private val context: Context) {
      * Two passes, both off the same reused channel fetch:
      *  1. Videos tab — regular uploads. This is the common case and the only request most channels
      *     ever need.
-     *  2. Livestreams tab — only consulted for items still missing after pass 1. Past livestreams
-     *     that are now available as recordings live here, not under Videos. For those we also
-     *     rewrite the stream type to [StreamType.POST_LIVE_STREAM] (the RSS path stored them as a
-     *     plain video) so the feed shows the length overlay AND the "Livestream Recording" label.
+     *  2. Livestreams tab — only consulted for items still missing after pass 1. This identifies
+     *     both upcoming streams and past livestreams that are now available as recordings. We
+     *     persist [ContentAvailability.UPCOMING] for the former; for the latter, we rewrite the
+     *     stream type to [StreamType.POST_LIVE_STREAM] and store its duration.
      */
     private fun enrichChannelDurations(
         info: FeedUpdateInfo,
@@ -367,11 +370,14 @@ class FeedLoadManager(private val context: Context) {
             val channelInfo = getChannelInfo(info.serviceId, info.url, true).blockingGet()
 
             // Pass 1: regular uploads from the Videos tab.
-            val videoDurations = fetchTabDurations(info.serviceId, channelInfo, ChannelTabs.VIDEOS)
+            val videoItems = fetchTabStreams(info.serviceId, channelInfo, ChannelTabs.VIDEOS)
+            val feedItems = info.streams
+                .filter { it.url != null }
+                .associateBy { videoKey(it.url!!) }
             var videosPatched = 0
             val stillMissing = ArrayList<String>()
             for (url in missingUrls) {
-                val duration = videoDurations[videoKey(url)]
+                val duration = videoItems[videoKey(url)]?.duration
                 if (duration != null && duration > 0) {
                     if (feedDatabaseManager.setStreamDurationIfMissing(info.serviceId, url, duration)) {
                         videosPatched++
@@ -383,29 +389,67 @@ class FeedLoadManager(private val context: Context) {
 
             // Pass 2: only for leftovers, look in the Livestreams tab for ended-livestream
             // recordings, and mark them as such.
-            var recordingsPatched = 0
+            var livestreamsPatched = 0
             if (stillMissing.isNotEmpty()) {
-                val liveDurations =
-                    fetchTabDurations(info.serviceId, channelInfo, ChannelTabs.LIVESTREAMS)
+                val liveItems =
+                    fetchTabStreams(info.serviceId, channelInfo, ChannelTabs.LIVESTREAMS)
                 for (url in stillMissing) {
-                    val duration = liveDurations[videoKey(url)] ?: continue
-                    if (duration > 0 &&
+                    val liveItem = liveItems[videoKey(url)] ?: continue
+                    if (liveItem.contentAvailability == ContentAvailability.UPCOMING) {
+                        if (feedDatabaseManager.setStreamUpcomingIfDurationMissing(
+                                info.serviceId,
+                                url
+                            )
+                        ) {
+                            livestreamsPatched++
+                            feedDbg(
+                                "DURATION-ENRICH upcoming title=\"${liveItem.name}\" url=$url"
+                            )
+                        }
+                    } else if (liveItem.duration > 0 &&
                         feedDatabaseManager.setStreamDurationAndTypeIfMissing(
                             info.serviceId,
                             url,
-                            duration,
+                            liveItem.duration,
                             StreamType.POST_LIVE_STREAM
                         )
                     ) {
-                        recordingsPatched++
+                        livestreamsPatched++
+                    }
+                }
+
+                // Some scheduled streams are present in RSS but omitted from the channel's
+                // Livestreams tab. Probe only those unresolved, durationless plain-video rows;
+                // ordinary uploads were already resolved by the Videos tab above.
+                for (url in stillMissing) {
+                    val key = videoKey(url)
+                    val feedItem = feedItems[key] ?: continue
+                    val liveItem = liveItems[key]
+                    if (feedItem.streamType != StreamType.VIDEO_STREAM ||
+                        feedItem.duration >= 0 ||
+                        liveItem?.contentAvailability == ContentAvailability.UPCOMING ||
+                        (liveItem?.duration ?: -1) > 0
+                    ) {
+                        continue
+                    }
+
+                    val probe = getStreamInfo(info.serviceId, url, true)
+                        .materialize()
+                        .blockingGet()
+                    if (isUpcomingFeedError(probe.error) &&
+                        feedDatabaseManager.setStreamUpcomingIfDurationMissing(info.serviceId, url)
+                    ) {
+                        livestreamsPatched++
+                        feedDbg("DURATION-ENRICH upcoming-probe title=\"${feedItem.name}\" url=$url")
                     }
                 }
             }
 
-            patched.addAndGet(videosPatched + recordingsPatched)
+            patched.addAndGet(videosPatched + livestreamsPatched)
             feedDbg(
                 "DURATION-ENRICH channel name=\"${info.name}\" url=${info.url} " +
-                    "missing=${missingUrls.size} videos=$videosPatched recordings=$recordingsPatched"
+                    "missing=${missingUrls.size} videos=$videosPatched " +
+                    "livestreams=$livestreamsPatched"
             )
         } catch (e: Throwable) {
             feedDbg("DURATION-ENRICH FAILED name=\"${info.name}\" url=${info.url}", e)
@@ -413,16 +457,15 @@ class FeedLoadManager(private val context: Context) {
     }
 
     /**
-     * Fetch one of a channel's tabs (identified by a [ChannelTabs] content filter) and return a
-     * [videoKey] -> duration map for its items that carry a real duration. Reuses the already
-     * fetched [channelInfo], so this is ~1 browse request per tab. Returns an empty map if the
-     * channel has no such tab.
+     * Fetch one of a channel's tabs (identified by a [ChannelTabs] content filter) and return its
+     * stream items keyed by [videoKey]. Reuses the already fetched [channelInfo], so this is about
+     * one browse request per tab. Returns an empty map if the channel has no such tab.
      */
-    private fun fetchTabDurations(
+    private fun fetchTabStreams(
         serviceId: Int,
         channelInfo: ChannelInfo,
         contentFilter: String
-    ): Map<String, Long> {
+    ): Map<String, StreamInfoItem> {
         val tab = channelInfo.tabs.firstOrNull {
             it.contentFilters.contains(contentFilter)
         } ?: return emptyMap()
@@ -431,8 +474,8 @@ class FeedLoadManager(private val context: Context) {
             .blockingGet()
             .relatedItems
             .filterIsInstance<StreamInfoItem>()
-            .filter { it.duration > 0 && it.url != null }
-            .associate { videoKey(it.url!!) to it.duration }
+            .filter { it.url != null }
+            .associateBy { videoKey(it.url!!) }
     }
 
     /**
@@ -859,3 +902,5 @@ internal fun <T> feedOrNullOnUnavailable(load: () -> T): T? = try {
 } catch (_: ContentNotAvailableException) {
     null
 }
+
+internal fun isUpcomingFeedError(error: Throwable?): Boolean = error is ContentNotYetAvailableException

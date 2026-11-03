@@ -7,12 +7,12 @@
 #   2. prefetch the target URL (== list-visibility StreamPrefetcher path), wait for prefetch.done
 #   3. fire the normal VIEW intent (the "tap") and trace until firstFrame
 #
-# Usage: scripts/measure_startup.sh [URL]
+# Usage: scripts/measure_startup.sh URL
 #   Rebuild+install first with: scripts/build_install.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-URL="${1:-https://www.youtube.com/watch?v=jNQXAC9IVRw}"
+URL="${1:?Usage: scripts/measure_startup.sh URL}"
 PKG=org.schabi.newpipe.debug
 
 adb shell am force-stop "$PKG" >/dev/null 2>&1

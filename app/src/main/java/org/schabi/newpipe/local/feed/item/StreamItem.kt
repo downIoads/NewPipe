@@ -73,7 +73,17 @@ data class StreamItem(
         viewBinding.itemVideoTitleView.text = stream.title
         viewBinding.itemUploaderView.text = stream.uploader
 
-        if (stream.duration > 0) {
+        if (stream.contentAvailability == UPCOMING) {
+            viewBinding.itemDurationView.setText(R.string.feed_show_upcoming)
+            viewBinding.itemDurationView.setBackgroundColor(
+                ContextCompat.getColor(
+                    viewBinding.itemDurationView.context,
+                    R.color.duration_background_color
+                )
+            )
+            viewBinding.itemDurationView.visibility = View.VISIBLE
+            viewBinding.itemProgressView.visibility = View.GONE
+        } else if (stream.duration > 0) {
             viewBinding.itemDurationView.text = Localization.getDurationString(stream.duration)
             viewBinding.itemDurationView.setBackgroundColor(
                 ContextCompat.getColor(
@@ -129,7 +139,7 @@ data class StreamItem(
     private fun getStreamInfoDetailLine(context: Context): String {
         var viewsAndDate = ""
         val viewCount = stream.viewCount
-        if (viewCount != null && viewCount >= 0) {
+        if (stream.contentAvailability != UPCOMING && viewCount != null && viewCount >= 0) {
             viewsAndDate = when (stream.streamType) {
                 AUDIO_LIVE_STREAM -> Localization.listeningCount(context, viewCount)
                 LIVE_STREAM -> Localization.shortWatchingCount(context, viewCount)

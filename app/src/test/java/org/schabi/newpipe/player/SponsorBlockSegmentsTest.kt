@@ -9,9 +9,9 @@ import org.schabi.newpipe.player.SponsorBlockSegments.Segment
 class SponsorBlockSegmentsTest {
     @Test
     fun `lookup sends only four hash characters and requests skip actions`() {
-        val request = SponsorBlockSegments.request("dQw4w9WgXcQ")
-        assertEquals("/api/skipSegments/5f6b", request.url.encodedPath)
-        assertFalse(request.url.toString().contains("dQw4w9WgXcQ"))
+        val request = SponsorBlockSegments.request("test-video-id")
+        assertEquals("/api/skipSegments/64fd", request.url.encodedPath)
+        assertFalse(request.url.toString().contains("test-video-id"))
         assertEquals("[\"skip\"]", request.url.queryParameter("actionTypes"))
         assertEquals("[\"sponsor\"]", request.url.queryParameter("categories"))
     }

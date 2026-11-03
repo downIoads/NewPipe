@@ -18,6 +18,7 @@ import org.schabi.newpipe.database.feed.model.FeedLastUpdatedEntity
 import org.schabi.newpipe.database.stream.StreamWithState
 import org.schabi.newpipe.database.stream.model.StreamEntity
 import org.schabi.newpipe.database.subscription.NotificationMode
+import org.schabi.newpipe.extractor.stream.ContentAvailability
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.local.subscription.FeedGroupIcon
@@ -102,6 +103,15 @@ class FeedDatabaseManager(context: Context) {
         streamType: StreamType
     ): Boolean {
         return streamTable.setDurationAndTypeIfMissing(serviceId, url, duration, streamType) > 0
+    }
+
+    /** Mark a still-durationless RSS row as upcoming using richer channel-tab metadata. */
+    fun setStreamUpcomingIfDurationMissing(serviceId: Int, url: String): Boolean {
+        return streamTable.updateContentAvailabilityIfDurationMissing(
+            serviceId,
+            url,
+            ContentAvailability.UPCOMING
+        ) > 0
     }
 
     /**

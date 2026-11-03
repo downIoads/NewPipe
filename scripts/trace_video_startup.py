@@ -17,7 +17,6 @@ from dataclasses import dataclass
 
 
 DEFAULT_PACKAGE = "org.schabi.newpipe.debug"
-DEFAULT_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
 EPOCH_RE = re.compile(r"^\s*(\d+\.\d+)\s+")
 ELAPSED_RE = re.compile(r"\+(-?\d+)ms")
@@ -53,7 +52,7 @@ def event_label(line: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("url", nargs="?", default=DEFAULT_URL)
+    parser.add_argument("url", help="video URL to launch")
     parser.add_argument("--package", default=DEFAULT_PACKAGE)
     parser.add_argument("--timeout", type=float, default=45.0)
     args = parser.parse_args()
