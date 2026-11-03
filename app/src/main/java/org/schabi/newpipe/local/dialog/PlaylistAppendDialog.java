@@ -22,6 +22,7 @@ import org.schabi.newpipe.database.stream.model.StreamEntity;
 import org.schabi.newpipe.local.LocalItemListAdapter;
 import org.schabi.newpipe.local.playlist.LocalPlaylistManager;
 
+import java.util.Comparator;
 import java.util.List;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
@@ -130,12 +131,18 @@ public final class PlaylistAppendDialog extends PlaylistDialog {
         if (playlistAdapter != null
                 && playlistRecyclerView != null
                 && playlistDuplicateIndicator != null) {
+            moveWatchLaterToTop(playlists);
             playlistAdapter.clearStreamItemList();
             playlistAdapter.addItems(playlists);
             playlistRecyclerView.setVisibility(View.VISIBLE);
             playlistDuplicateIndicator.setVisibility(
                     anyPlaylistContainsDuplicates(playlists) ? View.VISIBLE : View.GONE);
         }
+    }
+
+    static void moveWatchLaterToTop(@NonNull final List<PlaylistDuplicatesEntry> playlists) {
+        playlists.sort(Comparator.comparing(playlist ->
+                !PlaylistEntity.isWatchLaterName(playlist.getOrderingName())));
     }
 
     private boolean anyPlaylistContainsDuplicates(final List<PlaylistDuplicatesEntry> playlists) {
