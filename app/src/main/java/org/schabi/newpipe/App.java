@@ -103,6 +103,12 @@ public class App extends Application {
 
         app = this;
 
+        if (ACRA.isACRASenderServiceProcess()) {
+            Log.i(TAG, "This is the ACRA sender service process! "
+                    + "Aborting initialization of App[onCreate]");
+            return;
+        }
+
         if (ProcessPhoenix.isPhoenixProcess(this)) {
             Log.i(TAG, "This is a phoenix process! "
                     + "Aborting initialization of App[onCreate]");
