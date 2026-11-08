@@ -17,6 +17,27 @@
         android:textStyle="bold"
         tools:text="Account terminated" />
 
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/error_country_list_scroll_view"
+        android:layout_width="match_parent"
+        android:layout_height="320dp"
+        android:layout_marginTop="12dp"
+        android:fadeScrollbars="false"
+        android:scrollbars="vertical"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <org.schabi.newpipe.views.NewPipeTextView
+            android:id="@+id/error_country_list_view"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="start"
+            android:paddingEnd="12dp"
+            android:textSize="16sp"
+            tools:text="Available countries:&#10;✓ Belgium&#10;✓ Netherlands&#10;✓ United Kingdom" />
+
+    </androidx.core.widget.NestedScrollView>
+
     <org.schabi.newpipe.views.NewPipeTextView
         android:id="@+id/error_message_service_info_view"
         android:layout_width="wrap_content"

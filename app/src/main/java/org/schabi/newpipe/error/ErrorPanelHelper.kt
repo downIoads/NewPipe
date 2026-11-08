@@ -1,13 +1,16 @@
 package org.schabi.newpipe.error
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import androidx.annotation.StringRes
 import androidx.core.view.isVisible
+import androidx.core.widget.NestedScrollView
 import androidx.fragment.app.Fragment
 import com.jakewharton.rxbinding4.view.clicks
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
@@ -31,6 +34,10 @@ class ErrorPanelHelper(
     // the only element that is visible by default
     private val errorTextView: TextView =
         errorPanelRoot.findViewById(R.id.error_message_view)
+    private val errorCountryListScrollView: NestedScrollView =
+        errorPanelRoot.findViewById(R.id.error_country_list_scroll_view)
+    private val errorCountryListTextView: TextView =
+        errorPanelRoot.findViewById(R.id.error_country_list_view)
     private val errorServiceInfoTextView: TextView =
         errorPanelRoot.findViewById(R.id.error_message_service_info_view)
     private val errorServiceExplanationTextView: TextView =
@@ -46,6 +53,7 @@ class ErrorPanelHelper(
     private var retryShouldBeShown: Boolean = (onRetry != null)
 
     init {
+        isolateCountryListScrolling()
         if (onRetry != null) {
             errorDisposable = errorRetryButton.clicks()
                 .debounce(300, TimeUnit.MILLISECONDS)
@@ -56,6 +64,8 @@ class ErrorPanelHelper(
 
     private fun ensureDefaultVisibility() {
         errorTextView.isVisible = true
+        errorCountryListScrollView.isVisible = false
+        errorCountryListTextView.text = null
 
         errorServiceInfoTextView.isVisible = false
         errorServiceExplanationTextView.isVisible = false
@@ -71,6 +81,8 @@ class ErrorPanelHelper(
                     .append(" request=").append(errorInfo.request)
                     .append(" service=").append(errorInfo.getServiceName())
                     .append(" message=").append(errorInfo.getMessage(context))
+                    .append(" availableCountries=")
+                    .append(errorInfo.availableCountriesText?.lineSequence()?.count() ?: 0)
                     .append(" reportable=").append(errorInfo.isReportable)
                     .append(" retryable=").append(errorInfo.isRetryable)
                     .append(" openInBrowser=").append(errorInfo.openInBrowserUrl)
@@ -105,6 +117,15 @@ class ErrorPanelHelper(
 
         ensureDefaultVisibility()
         errorTextView.text = errorInfo.getMessage(context)
+        errorInfo.availableCountriesText?.let { availableCountries ->
+            errorCountryListTextView.text = buildString {
+                append(context.getString(R.string.available_countries))
+                append('\n')
+                append(availableCountries)
+            }
+            errorCountryListScrollView.scrollTo(0, 0)
+            errorCountryListScrollView.isVisible = true
+        }
 
         if (errorInfo.recaptchaUrl != null) {
             showAndSetErrorButtonAction(R.string.recaptcha_solve) {
@@ -152,6 +173,21 @@ class ErrorPanelHelper(
 
     private fun setRootVisible() {
         errorPanelRoot.animate(true, 300)
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun isolateCountryListScrolling() {
+        errorCountryListScrollView.isNestedScrollingEnabled = false
+        errorCountryListScrollView.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN,
+                MotionEvent.ACTION_MOVE -> view.parent.requestDisallowInterceptTouchEvent(true)
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> view.parent.requestDisallowInterceptTouchEvent(false)
+            }
+            false
+        }
     }
 
     fun hide() {

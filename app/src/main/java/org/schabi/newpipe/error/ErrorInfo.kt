@@ -8,6 +8,7 @@ import com.google.android.exoplayer2.ExoPlaybackException
 import com.google.android.exoplayer2.upstream.HttpDataSource
 import com.google.android.exoplayer2.upstream.Loader
 import java.net.UnknownHostException
+import java.util.Locale
 import kotlinx.parcelize.Parcelize
 import org.schabi.newpipe.R
 import org.schabi.newpipe.extractor.Info
@@ -42,6 +43,7 @@ class ErrorInfo private constructor(
     val request: String,
     val serviceId: Int?,
     private val message: ErrorMessage,
+    val availableCountriesText: String?,
     /**
      * If `true`, a report button will be shown for this error. Otherwise the error is not something
      * that can really be reported (e.g. a network issue, or content not being available at all).
@@ -76,6 +78,7 @@ class ErrorInfo private constructor(
         request,
         serviceId,
         getMessage(throwable, userAction, serviceId),
+        getAvailableCountriesText(throwable),
         isReportable(throwable),
         isRetryable(throwable),
         (throwable as? ReCaptchaException)?.url,
@@ -95,6 +98,7 @@ class ErrorInfo private constructor(
         request,
         serviceId,
         getMessage(throwables.firstOrNull(), userAction, serviceId),
+        getAvailableCountriesText(throwables.firstOrNull()),
         throwables.any(::isReportable),
         throwables.isEmpty() || throwables.any(::isRetryable),
         throwables.firstNotNullOfOrNull { it as? ReCaptchaException }?.url,
@@ -111,7 +115,7 @@ class ErrorInfo private constructor(
     ) :
         this(
             stackTraces, userAction, request, serviceId, ErrorMessage(message),
-            true, false, null, null
+            null, true, false, null, null
         )
 
     // constructor with only one throwable to extract service id and openInBrowserUrl from an Info
@@ -169,6 +173,23 @@ class ErrorInfo private constructor(
             // want to default to SERVICE_NONE
             ServiceList.all().firstOrNull { it.serviceId == serviceId }?.serviceInfo?.name
                 ?: SERVICE_NONE
+
+        private fun formatAvailableCountries(countryCodes: List<String>): String = countryCodes
+            .map { countryCode ->
+                Locale.Builder()
+                    .setRegion(countryCode)
+                    .build()
+                    .getDisplayCountry(Locale.ENGLISH)
+            }
+            .filter(String::isNotBlank)
+            .distinct()
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+            .joinToString(separator = "\n") { countryName -> "✓ $countryName" }
+
+        private fun getAvailableCountriesText(throwable: Throwable?): String? = (throwable as? GeographicRestrictionException)
+            ?.availableCountries
+            ?.takeIf(List<String>::isNotEmpty)
+            ?.let(::formatAvailableCountries)
 
         fun throwableToStringList(throwable: Throwable) = arrayOf(throwable.stackTraceToString())
 
