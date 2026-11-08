@@ -12,6 +12,7 @@ import io.reactivex.rxjava3.core.Single
 import io.reactivex.rxjava3.functions.Consumer
 import io.reactivex.rxjava3.processors.PublishProcessor
 import io.reactivex.rxjava3.schedulers.Schedulers
+import java.time.Duration
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.concurrent.atomic.AtomicBoolean
@@ -393,10 +394,25 @@ class FeedLoadManager(private val context: Context) {
             if (stillMissing.isNotEmpty()) {
                 val liveItems =
                     fetchTabStreams(info.serviceId, channelInfo, ChannelTabs.LIVESTREAMS)
+                val richChannelItems = videoItems + liveItems
                 for (url in stillMissing) {
                     val liveItem = liveItems[videoKey(url)] ?: continue
                     if (liveItem.contentAvailability == ContentAvailability.UPCOMING) {
-                        if (feedDatabaseManager.setStreamUpcomingIfDurationMissing(
+                        val feedItem = feedItems[videoKey(url)]
+                        val replacement = feedItem?.let {
+                            findRecentReplacementRecording(it, info.streams, richChannelItems)
+                        }
+                        if (replacement != null &&
+                            feedDatabaseManager.unlinkStream(info.uid, info.serviceId, url)
+                        ) {
+                            livestreamsPatched++
+                            feedDbg(
+                                "DURATION-ENRICH removed obsolete upcoming " +
+                                    "title=\"${liveItem.name}\" url=$url " +
+                                    "replacement=${replacement.url}"
+                            )
+                        } else if (replacement == null &&
+                            feedDatabaseManager.setStreamUpcomingIfDurationMissing(
                                 info.serviceId,
                                 url
                             )
@@ -436,11 +452,34 @@ class FeedLoadManager(private val context: Context) {
                     val probe = getStreamInfo(info.serviceId, url, true)
                         .materialize()
                         .blockingGet()
-                    if (isUpcomingFeedError(probe.error) &&
-                        feedDatabaseManager.setStreamUpcomingIfDurationMissing(info.serviceId, url)
-                    ) {
-                        livestreamsPatched++
-                        feedDbg("DURATION-ENRICH upcoming-probe title=\"${feedItem.name}\" url=$url")
+                    if (isUpcomingFeedError(probe.error)) {
+                        val replacement = findRecentReplacementRecording(
+                            feedItem,
+                            info.streams,
+                            richChannelItems
+                        )
+                        if (replacement != null) {
+                            if (feedDatabaseManager.unlinkStream(info.uid, info.serviceId, url)) {
+                                livestreamsPatched++
+                                feedDbg(
+                                    "DURATION-ENRICH removed obsolete upcoming " +
+                                        "title=\"${feedItem.name}\" url=$url " +
+                                        "replacement=${replacement.url}"
+                                )
+                            }
+                            continue
+                        }
+                        if (feedDatabaseManager.setStreamUpcomingIfDurationMissing(
+                                info.serviceId,
+                                url
+                            )
+                        ) {
+                            livestreamsPatched++
+                            feedDbg(
+                                "DURATION-ENRICH upcoming-probe " +
+                                    "title=\"${feedItem.name}\" url=$url"
+                            )
+                        }
                     }
                 }
             }
@@ -485,7 +524,7 @@ class FeedLoadManager(private val context: Context) {
      * is fine because both sides come from the same extractor.
      */
     private fun videoKey(url: String): String {
-        return YOUTUBE_VIDEO_ID_REGEX.find(url)?.groupValues?.get(1) ?: url
+        return feedVideoKey(url)
     }
 
     /**
@@ -848,12 +887,6 @@ class FeedLoadManager(private val context: Context) {
         private const val FALLBACK_VIDEO_LIMIT = 30
 
         /**
-         * Extracts the 11-char YouTube video id from a watch URL (`...?v=<id>` / `...&v=<id>`).
-         * Used by the background duration enrichment to match RSS items against Videos-tab items.
-         */
-        private val YOUTUBE_VIDEO_ID_REGEX = Regex("[?&]v=([A-Za-z0-9_-]{11})")
-
-        /**
          * Number of items to buffer to mass-insert in the database.
          */
         private const val BUFFER_COUNT_BEFORE_INSERT = 20
@@ -894,6 +927,42 @@ class FeedLoadManager(private val context: Context) {
             DebugFileLog.log(FEED_DEBUG_TAG, msg, t)
         }
     }
+}
+
+private val YOUTUBE_FEED_VIDEO_ID_REGEX = Regex("[?&]v=([A-Za-z0-9_-]{11})")
+private val MAX_REPLACEMENT_RECORDING_DELAY: Duration = Duration.ofMinutes(30)
+
+internal fun findRecentReplacementRecording(
+    placeholder: StreamInfoItem,
+    feedItems: List<StreamInfoItem>,
+    richChannelItems: Map<String, StreamInfoItem>
+): StreamInfoItem? {
+    val placeholderUrl = placeholder.url ?: return null
+    val placeholderDate = placeholder.uploadDate?.offsetDateTime() ?: return null
+
+    return feedItems.firstOrNull { candidate ->
+        val candidateUrl = candidate.url ?: return@firstOrNull false
+        if (feedVideoKey(candidateUrl) == feedVideoKey(placeholderUrl) ||
+            candidate.name != placeholder.name
+        ) {
+            return@firstOrNull false
+        }
+
+        val candidateDate = candidate.uploadDate?.offsetDateTime() ?: return@firstOrNull false
+        val delay = Duration.between(placeholderDate, candidateDate)
+        if (delay.isNegative || delay > MAX_REPLACEMENT_RECORDING_DELAY) {
+            return@firstOrNull false
+        }
+
+        val richItem = richChannelItems[feedVideoKey(candidateUrl)] ?: return@firstOrNull false
+        richItem.duration > 0 &&
+            richItem.contentAvailability != ContentAvailability.UPCOMING
+    }
+}
+
+/** Match the same item across RSS and channel tabs despite extra watch-URL query parameters. */
+internal fun feedVideoKey(url: String): String {
+    return YOUTUBE_FEED_VIDEO_ID_REGEX.find(url)?.groupValues?.get(1) ?: url
 }
 
 /** An unavailable RSS endpoint does not establish that the channel is unavailable. */

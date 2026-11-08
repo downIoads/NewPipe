@@ -118,6 +118,11 @@ class FeedDatabaseManager(context: Context) {
         ) > 0
     }
 
+    /** Remove an obsolete stream from one subscription's feed without deleting saved user data. */
+    fun unlinkStream(subscriptionId: Long, serviceId: Int, url: String): Boolean {
+        return feedTable.unlinkStream(subscriptionId, serviceId, url) > 0
+    }
+
     /**
      * Of [urls], the subset whose stored stream still has an unknown duration. Lets the feed's
      * background enrichment skip the network entirely for channels whose items already have a

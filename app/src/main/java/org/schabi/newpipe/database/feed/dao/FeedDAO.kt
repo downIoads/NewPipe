@@ -156,6 +156,18 @@ abstract class FeedDAO {
     )
     abstract fun unlinkOldLivestreams(subscriptionId: Long)
 
+    @Query(
+        """
+        DELETE FROM feed
+        WHERE subscription_id = :subscriptionId
+        AND stream_id IN (
+            SELECT uid FROM streams
+            WHERE service_id = :serviceId AND url = :url
+        )
+        """
+    )
+    abstract fun unlinkStream(subscriptionId: Long, serviceId: Int, url: String): Int
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract fun insert(feedEntity: FeedEntity)
 
