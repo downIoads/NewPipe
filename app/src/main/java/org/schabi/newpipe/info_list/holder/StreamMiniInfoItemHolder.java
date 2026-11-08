@@ -1,5 +1,7 @@
 package org.schabi.newpipe.info_list.holder;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
@@ -34,6 +36,9 @@ public class StreamMiniInfoItemHolder extends InfoItemHolder {
     private final AnimatedProgressBar itemProgressView;
     private Disposable streamStateDisposable;
     private String boundStreamStateKey;
+    private final Handler scheduledTextHandler = new Handler(Looper.getMainLooper());
+    private StreamInfoItem boundScheduledItem;
+    private final Runnable scheduledTextUpdater = this::updateScheduledText;
 
     StreamMiniInfoItemHolder(final InfoItemBuilder infoItemBuilder, final int layoutId,
                              final ViewGroup parent) {
@@ -59,17 +64,9 @@ public class StreamMiniInfoItemHolder extends InfoItemHolder {
         final StreamInfoItem item = (StreamInfoItem) infoItem;
 
         itemVideoTitleView.setText(item.getName());
-        final String uploadDate = Localization.relativeTimeOrTextualShortWithDate(
-                itemBuilder.getContext(),
-                item.getUploadDate(),
-                item.getTextualUploadDate());
-        final String uploaderName = Localization.truncateChannelName(item.getUploaderName());
-        if (TextUtils.isEmpty(uploadDate)) {
-            itemUploaderView.setText(uploaderName);
-        } else {
-            itemUploaderView.setText(Localization.highlightScheduled(
-                    itemBuilder.getContext(), uploaderName + "\n" + uploadDate));
-        }
+        scheduledTextHandler.removeCallbacks(scheduledTextUpdater);
+        boundScheduledItem = item;
+        updateScheduledText();
 
         if (item.getDuration() > 0) {
             itemDurationView.setText(Localization.getDurationString(item.getDuration()));
@@ -125,7 +122,38 @@ public class StreamMiniInfoItemHolder extends InfoItemHolder {
 
     @Override
     public void clear() {
+        scheduledTextHandler.removeCallbacks(scheduledTextUpdater);
+        boundScheduledItem = null;
         clearStreamStateLoad();
+    }
+
+    protected void updateScheduledDetails(final StreamInfoItem item) { }
+
+    private void updateScheduledText() {
+        final StreamInfoItem item = boundScheduledItem;
+        if (item == null) {
+            return;
+        }
+
+        final String uploadDate = Localization.relativeTimeOrTextualShortWithDate(
+                itemBuilder.getContext(), item.getUploadDate(), item.getTextualUploadDate());
+        final String uploaderName = Localization.truncateChannelName(item.getUploaderName());
+        if (TextUtils.isEmpty(uploadDate)) {
+            itemUploaderView.setText(uploaderName);
+        } else {
+            itemUploaderView.setText(Localization.highlightScheduled(
+                    itemBuilder.getContext(), uploaderName + "\n" + uploadDate));
+        }
+        updateScheduledDetails(item);
+
+        scheduledTextHandler.removeCallbacks(scheduledTextUpdater);
+        if (item.getUploadDate() != null) {
+            final long delay = Localization.scheduledCountdownUpdateDelayMillis(
+                    item.getUploadDate().offsetDateTime());
+            if (delay >= 0L) {
+                scheduledTextHandler.postDelayed(scheduledTextUpdater, delay);
+            }
+        }
     }
 
     private void loadStreamState(final InfoItem infoItem,

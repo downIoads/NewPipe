@@ -67,11 +67,15 @@ public class StreamInfoItemHolder extends StreamMiniInfoItemHolder {
         }
         final StreamInfoItem item = (StreamInfoItem) infoItem;
 
-        itemAdditionalDetails.setText(Localization.highlightScheduled(
-                itemBuilder.getContext(), getStreamInfoDetailLine(item)));
         itemMembersOnlyDetails.setVisibility(isMembersOnly(item) ? View.VISIBLE : View.GONE);
         itemLivestreamRecordingDetails.setVisibility(
                 isLivestreamRecording(item) ? View.VISIBLE : View.GONE);
+    }
+
+    @Override
+    protected void updateScheduledDetails(final StreamInfoItem item) {
+        itemAdditionalDetails.setText(Localization.highlightScheduled(
+                itemBuilder.getContext(), getStreamInfoDetailLine(item)));
     }
 
     private String getStreamInfoDetailLine(final StreamInfoItem infoItem) {

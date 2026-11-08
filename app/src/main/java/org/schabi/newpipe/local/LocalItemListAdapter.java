@@ -402,6 +402,14 @@ public class LocalItemListAdapter extends RecyclerView.Adapter<RecyclerView.View
         }
     }
 
+    @Override
+    public void onViewRecycled(@NonNull final RecyclerView.ViewHolder holder) {
+        if (holder instanceof LocalItemHolder) {
+            ((LocalItemHolder) holder).clear();
+        }
+        super.onViewRecycled(holder);
+    }
+
     public GridLayoutManager.SpanSizeLookup getSpanSizeLookup(final int spanCount) {
         return new GridLayoutManager.SpanSizeLookup() {
             @Override

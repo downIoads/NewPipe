@@ -81,6 +81,7 @@ public final class Localization {
 
     private static final int MAX_CHANNEL_NAME_LENGTH = 30;
     private static final int TRUNCATED_CHANNEL_NAME_LENGTH = 27;
+    private static final long SCHEDULED_COUNTDOWN_WINDOW_SECONDS = 12 * 60 * 60;
 
     @NonNull
     public static String truncateChannelName(@Nullable final String name) {
@@ -554,9 +555,56 @@ public final class Localization {
             return relativeText;
         }
         if (offsetDateTime.isAfter(OffsetDateTime.now())) {
+            final Duration remaining = Duration.between(OffsetDateTime.now(), offsetDateTime);
+            if (remaining.getSeconds() <= SCHEDULED_COUNTDOWN_WINDOW_SECONDS) {
+                final long countdownSeconds = roundedCountdownSeconds(remaining);
+                final int stringId = countdownSeconds >= 3600L
+                        ? R.string.scheduled_countdown_hours
+                        : countdownSeconds >= 60L
+                        ? R.string.scheduled_countdown_minutes
+                        : R.string.scheduled_countdown_seconds;
+                return context.getString(stringId, formatScheduledCountdown(remaining));
+            }
             return context.getString(R.string.scheduled_relative_time, relativeText);
         }
         return relativeText;
+    }
+
+    static String formatScheduledCountdown(@NonNull final Duration remaining) {
+        final long seconds = roundedCountdownSeconds(remaining);
+        final long hours = seconds / 3600L;
+        final long minutes = seconds % 3600L / 60L;
+        final long remainingSeconds = seconds % 60L;
+        if (hours > 0L) {
+            return String.format(Locale.ROOT, "%d:%02d:%02d", hours, minutes,
+                    remainingSeconds);
+        }
+        if (minutes > 0L) {
+            return String.format(Locale.ROOT, "%d:%02d", minutes, remainingSeconds);
+        }
+        return Long.toString(remainingSeconds);
+    }
+
+    private static long roundedCountdownSeconds(@NonNull final Duration remaining) {
+        return Math.max(0L, (remaining.toMillis() + 999L) / 1000L);
+    }
+
+    /**
+     * @param scheduledTime future scheduled time
+     * @return delay until the countdown needs refreshing, or {@code -1} once it has started
+     */
+    public static long scheduledCountdownUpdateDelayMillis(
+            @NonNull final OffsetDateTime scheduledTime) {
+        final long remainingMillis = Duration.between(OffsetDateTime.now(), scheduledTime)
+                .toMillis();
+        if (remainingMillis <= 0L) {
+            return -1L;
+        }
+        final long countdownWindowMillis = SCHEDULED_COUNTDOWN_WINDOW_SECONDS * 1000L;
+        if (remainingMillis > countdownWindowMillis) {
+            return remainingMillis - countdownWindowMillis;
+        }
+        return Math.min(1000L, remainingMillis);
     }
 
     @Nullable

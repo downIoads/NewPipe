@@ -45,4 +45,6 @@ public abstract class LocalItemHolder extends RecyclerView.ViewHolder {
 
     public void updateState(final LocalItem localItem,
                             final HistoryRecordManager historyRecordManager) { }
+
+    public void clear() { }
 }

@@ -1,5 +1,7 @@
 package org.schabi.newpipe.local.holder;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.view.MotionEvent;
 import android.view.View;
@@ -25,6 +27,7 @@ import org.schabi.newpipe.util.image.PicassoHelper;
 import org.schabi.newpipe.views.AnimatedProgressBar;
 
 import java.time.format.DateTimeFormatter;
+import java.time.OffsetDateTime;
 import java.util.concurrent.TimeUnit;
 
 public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
@@ -34,6 +37,9 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
     public final TextView itemDurationView;
     private final View itemHandleView;
     private final AnimatedProgressBar itemProgressView;
+    private final Handler scheduledTextHandler = new Handler(Looper.getMainLooper());
+    private StreamEntity boundScheduledStream;
+    private final Runnable scheduledTextUpdater = this::updateScheduledText;
 
     LocalPlaylistStreamItemHolder(final LocalItemBuilder infoItemBuilder, final int layoutId,
                                   final ViewGroup parent) {
@@ -63,17 +69,14 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
 
         final StreamEntity stream = item.getStreamEntity();
         itemVideoTitleView.setText(stream.getTitle());
-        final String uploadDate = Localization.relativeTimeShortWithDate(
-                itemBuilder.getContext(),
-                stream.getUploadDate(),
-                stream.getTextualUploadDate());
-        final String uploaderName = Localization.truncateChannelName(stream.getUploader());
         final boolean isLive = StreamTypeUtil.isLiveStream(stream.getStreamType());
         final boolean isUpcoming = stream.getContentAvailability()
                 == ContentAvailability.UPCOMING;
-        if (isUpcoming) {
-            itemAdditionalDetailsView.setText(uploaderName);
-        } else if (isLive) {
+        scheduledTextHandler.removeCallbacks(scheduledTextUpdater);
+        boundScheduledStream = stream;
+        updateScheduledText();
+        if (isLive && !isUpcoming) {
+            final String uploaderName = Localization.truncateChannelName(stream.getUploader());
             final Long viewers = stream.getViewCount();
             final String watching = viewers == null || viewers < 0 ? ""
                     : stream.getStreamType() == StreamType.AUDIO_LIVE_STREAM
@@ -81,10 +84,6 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
                     : Localization.shortWatchingCount(itemBuilder.getContext(), viewers);
             itemAdditionalDetailsView.setText(TextUtils.isEmpty(watching)
                     ? uploaderName : uploaderName + "\n" + watching);
-        } else if (TextUtils.isEmpty(uploadDate)) {
-            itemAdditionalDetailsView.setText(uploaderName);
-        } else {
-            itemAdditionalDetailsView.setText(uploaderName + "\n" + uploadDate);
         }
 
         itemProgressView.setVisibility(View.GONE);
@@ -163,6 +162,50 @@ public class LocalPlaylistStreamItemHolder extends LocalItemHolder {
             }
         } else if (itemProgressView.getVisibility() == View.VISIBLE) {
             ViewUtils.animate(itemProgressView, false, 500);
+        }
+    }
+
+    @Override
+    public void clear() {
+        scheduledTextHandler.removeCallbacks(scheduledTextUpdater);
+        boundScheduledStream = null;
+    }
+
+    private void updateScheduledText() {
+        final StreamEntity stream = boundScheduledStream;
+        if (stream == null) {
+            return;
+        }
+
+        final String uploaderName = Localization.truncateChannelName(stream.getUploader());
+        final boolean isUpcoming = stream.getContentAvailability()
+                == ContentAvailability.UPCOMING;
+        final String uploadDate = Localization.relativeTimeShortWithDate(
+                itemBuilder.getContext(), stream.getUploadDate(), stream.getTextualUploadDate());
+        if (isUpcoming) {
+            if (stream.getUploadDate() != null
+                    && stream.getUploadDate().isAfter(OffsetDateTime.now())
+                    && !TextUtils.isEmpty(uploadDate)) {
+                itemAdditionalDetailsView.setText(Localization.highlightScheduled(
+                        itemBuilder.getContext(), uploaderName + "\n" + uploadDate));
+            } else {
+                itemAdditionalDetailsView.setText(uploaderName);
+            }
+        } else if (!StreamTypeUtil.isLiveStream(stream.getStreamType())
+                && !TextUtils.isEmpty(uploadDate)) {
+            itemAdditionalDetailsView.setText(Localization.highlightScheduled(
+                    itemBuilder.getContext(), uploaderName + "\n" + uploadDate));
+        } else if (!StreamTypeUtil.isLiveStream(stream.getStreamType())) {
+            itemAdditionalDetailsView.setText(uploaderName);
+        }
+
+        scheduledTextHandler.removeCallbacks(scheduledTextUpdater);
+        if (stream.getUploadDate() != null) {
+            final long delay = Localization.scheduledCountdownUpdateDelayMillis(
+                    stream.getUploadDate());
+            if (delay >= 0L) {
+                scheduledTextHandler.postDelayed(scheduledTextUpdater, delay);
+            }
         }
     }
 

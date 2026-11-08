@@ -1,5 +1,6 @@
 package org.schabi.newpipe.util
 
+import java.time.Duration
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
@@ -66,5 +67,18 @@ class LocalizationTest {
 
         assertEquals("13d ago", Localization.relativeTimeShort(now.minusDays(13)))
         assertEquals("2w ago", Localization.relativeTimeShort(now.minusDays(14)))
+    }
+
+    @Test
+    fun `scheduled countdown includes seconds and rounds partial seconds up`() {
+        assertEquals(
+            "1:46:05",
+            Localization.formatScheduledCountdown(Duration.ofHours(1).plusMinutes(46).plusSeconds(5))
+        )
+        assertEquals(
+            "1:00",
+            Localization.formatScheduledCountdown(Duration.ofSeconds(59).plusMillis(1))
+        )
+        assertEquals("30", Localization.formatScheduledCountdown(Duration.ofSeconds(30)))
     }
 }
