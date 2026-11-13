@@ -347,6 +347,7 @@
     <string name="youtube_restricted_mode_enabled">youtube_restricted_mode_enabled</string>
     <string name="enable_search_history_key">enable_search_history</string>
     <string name="show_live_in_search_key">show_live_in_search</string>
+    <string name="show_shorts_in_search_key">show_shorts_in_search</string>
     <string name="enable_watch_history_key">enable_watch_history</string>
     <string name="show_history_tab_key">show_history_tab</string>
     <string name="main_page_content_key">main_page_content</string>

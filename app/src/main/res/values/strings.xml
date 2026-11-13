@@ -162,6 +162,7 @@
     <string name="settings_category_search_title">Search</string>
     <string name="show_live_in_search_title">Show Live In Search Results</string>
     <string name="show_live_in_search_summary">Include live streams in search results</string>
+    <string name="show_shorts">Show shorts</string>
     <string name="settings_category_appearance_title">Appearance</string>
     <string name="settings_category_debug_title">Debug</string>
     <string name="settings_category_updates_title">Updates</string>
