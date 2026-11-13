@@ -28,6 +28,7 @@ import android.view.animation.DecelerateInterpolator;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -107,6 +108,7 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
      * to fetch/show the suggestions, in milliseconds.
      */
     private static final int SUGGESTIONS_DEBOUNCE = 120; //ms
+    private static final int MENU_ITEM_CLEAR_SEARCHES = 1000;
     private final PublishSubject<String> suggestionPublisher = PublishSubject.create();
 
     @State
@@ -503,13 +505,52 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         menu.setGroupCheckable(1, true, true);
 
         restoreFilterChecked(menu, filterItemCheckedId);
+
+        final MenuItem clearSearchesItem = menu.add(Menu.NONE,
+                MENU_ITEM_CLEAR_SEARCHES,
+                Menu.NONE,
+                R.string.clear_searches);
+        clearSearchesItem.setCheckable(false);
+        clearSearchesItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
     }
 
     @Override
     public boolean onOptionsItemSelected(@NonNull final MenuItem item) {
+        if (item.getItemId() == MENU_ITEM_CLEAR_SEARCHES) {
+            showClearSearchesDialog();
+            return true;
+        }
+
         final var filter = Collections.singletonList(menuItemToFilterName.get(item.getItemId()));
         changeContentFilter(item, filter);
         return true;
+    }
+
+    private void showClearSearchesDialog() {
+        if (activity == null || historyRecordManager == null || searchEditText == null) {
+            return;
+        }
+
+        new AlertDialog.Builder(activity)
+                .setTitle(R.string.delete_search_history_alert)
+                .setCancelable(false)
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.delete, (dialog, which) -> {
+                    final Disposable onDelete = historyRecordManager.deleteCompleteSearchHistory()
+                            .observeOn(AndroidSchedulers.mainThread())
+                            .subscribe(
+                                    howManyDeleted -> {
+                                        suggestionPublisher.onNext(getSearchEditString());
+                                        Toast.makeText(activity,
+                                                R.string.search_history_deleted,
+                                                Toast.LENGTH_SHORT).show();
+                                    },
+                                    throwable -> showSnackBarError(new ErrorInfo(throwable,
+                                            UserAction.DELETE_FROM_HISTORY,
+                                            "Deleting search history failed")));
+                    disposables.add(onDelete);
+                })
+                .show();
     }
 
     private void restoreFilterChecked(final Menu menu, final int itemId) {

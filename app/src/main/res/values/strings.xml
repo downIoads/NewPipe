@@ -235,6 +235,7 @@
     <string name="delete_playback_states_alert">Delete all playback positions?</string>
     <string name="watch_history_states_deleted">Playback positions deleted</string>
     <string name="clear_search_history_title">Clear search history</string>
+    <string name="clear_searches">Clear searches</string>
     <string name="clear_search_history_summary">Deletes history of search keywords</string>
     <string name="delete_search_history_alert">Delete entire search history?</string>
     <string name="search_history_deleted">Search history deleted</string>
