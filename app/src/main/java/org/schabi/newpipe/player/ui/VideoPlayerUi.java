@@ -1433,6 +1433,7 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
                 .map(Tracks.Group::getMediaTrackGroup)
                 .filter(textTrack -> textTrack.length > 0)
                 .map(textTrack -> textTrack.getFormat(0).language)
+                .sorted(PlayerHelper.getCaptionLanguageComparator())
                 .collect(Collectors.toList());
 
         // Find selected text track

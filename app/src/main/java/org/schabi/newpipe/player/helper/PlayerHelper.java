@@ -49,6 +49,7 @@ import java.text.DecimalFormatSymbols;
 import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -58,6 +59,11 @@ import java.util.concurrent.TimeUnit;
 
 public final class PlayerHelper {
     private static final FormattersProvider FORMATTERS_PROVIDER = new FormattersProvider();
+    private static final Comparator<String> CAPTION_LANGUAGE_COMPARATOR =
+            Comparator.comparingInt((String language) ->
+                            isEnglishCaptionLanguage(language) ? 0 : 1)
+                    .thenComparing(Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
+                    .thenComparing(Comparator.nullsLast(Comparator.naturalOrder()));
 
     @Retention(SOURCE)
     @IntDef({AUTOPLAY_TYPE_ALWAYS, AUTOPLAY_TYPE_WIFI,
@@ -134,6 +140,41 @@ public final class PlayerHelper {
         }
 
         return language.split("\\(")[0].trim();
+    }
+
+    /**
+     * Sort caption labels alphabetically, except that all English names and language tags are
+     * placed before other languages.
+     *
+     * @return a null-safe comparator for caption labels
+     */
+    @NonNull
+    public static Comparator<String> getCaptionLanguageComparator() {
+        return CAPTION_LANGUAGE_COMPARATOR;
+    }
+
+    private static boolean isEnglishCaptionLanguage(@Nullable final String language) {
+        if (language == null) {
+            return false;
+        }
+
+        final String normalized = captionLanguageStemOf(language).trim()
+                .toLowerCase(Locale.ROOT)
+                .replace('_', '-');
+        if (normalized.equals("en") || normalized.startsWith("en-")
+                || normalized.equals("eng") || normalized.startsWith("eng-")) {
+            return true;
+        }
+
+        final int englishIndex = normalized.indexOf("english");
+        if (englishIndex < 0) {
+            return false;
+        }
+
+        final int afterEnglish = englishIndex + "english".length();
+        return (englishIndex == 0 || !Character.isLetter(normalized.charAt(englishIndex - 1)))
+                && (afterEnglish == normalized.length()
+                || !Character.isLetter(normalized.charAt(afterEnglish)));
     }
 
     @NonNull
