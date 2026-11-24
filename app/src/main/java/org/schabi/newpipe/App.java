@@ -306,6 +306,7 @@ public class App extends Application {
         }
 
         final CoreConfigurationBuilder acraConfig = new CoreConfigurationBuilder()
+                .withLogcatFilterByPid(true)
                 .withBuildConfigClass(BuildConfig.class);
         ACRA.init(this, acraConfig);
     }
